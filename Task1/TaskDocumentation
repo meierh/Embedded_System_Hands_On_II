@@ -1,0 +1,173 @@
+Task 1.1
+    Identified BOOT.BIN
+    
+Task 1.2
+    On ESA bombur
+    Clone Repository:           git clone https://github.com/Xilinx/linux-xlnx.git
+    Add build tools to path:    export PATH=/opt/cad/xilinx/vitis/Vitis/2020.1/gnu/aarch64/lin/aarch64-linux/bin/${PATH:+:${PATH}}
+    Add following lines to the end of "linux-xlnx/arch/arm64/configs/xilinx_zynqmp_defconfig" : 
+                                CONFIG_VFIO=y 
+                                CONFIG_VFIO_PLATFORM=y
+                                CONFIG_VFIO_IOMMU_TYPE1=y 
+                                CONFIG_ARM_SMMU=y
+    Run Configure:              ARCH=arm64 make xilinx_zynqmp_defconfig
+    Configure Kernel:           ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- make menuconfig
+    Set:                        Device Drivers -> Network device support -> USB Network Adapters -> Realtek RTL8152/RTL8153 Based USB Ethernet Adapters ; press Y for built-in
+    Compile:                    make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu-
+    
+Task 1.3
+    In same directory as in Task 1.2
+    Indentify tapasco_zynqmp.dtsi
+    Copy tapasco_zynqmp.dtsi into "linux-xlnx/arch/arm64/boot/dts/xilinx/"
+    Add following line after any other include to linux-xlnx/arch/arm64/boot/dts/xilinx/avnet-ultra96-rev1.dts (see file in Task1/)
+                                #include "tapasco_zynqmp.dtsi"
+    Recompile device tree:      make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- dtbs
+    Build completed Image at:   linux-xlnx/arch/arm64/boot/Image
+    Build completed .dtb at:    linux-xlnx/arch/arm64/boot/dts/xilinx/avnet-ultra96-rev1.dtb
+    
+Task 1.4
+    Collect BOOT.BIN, Image, avnet-ultra96-rev1.dtb from previous tasks
+    Rename avnet-ultra96-rev1.dtb to System.dtb
+    Download Arch Linux AArch64 Multi-platform Image as ArchLinuxARM-aarch64-latest.tar.gz
+    Create SD-card file structure as follows
+                                Boot-Partition
+                                    BOOT.BIN
+                                    Image
+                                    System.dtb
+                                Root-Partition
+                                    Unpack Arch Image "tar --preserve-permissions --same-owner -xvf ../ArchLinuxARM-aarch64-latest.tar.gz ./" here
+    Create empty file:          sudo dd if=/dev/zero of=sd.img bs=1M count=12288
+    Create partition in file:   sudo fdisk sd.img
+    Create boot partition with fdisk:   n,p,default,default,+512M
+    Create root partition with fdisk:   n,p,default,default,default
+    Write paritions to sd.img in fdisk: w
+    Create loop device:         sudo kpartx -av sd.img
+                                Resulting in    add map loop40p1 (253:0): 0 1048576 linear 7:40 2048
+                                                add map loop40p2 (253:1): 0 28309504 linear 7:40 1050624
+    Format partition boot partition:    sudo mkfs.fat -F 32 /dev/mapper/loop40p1
+    Format partition root partition:    sudo mkfs.ext4 /dev/mapper/loop40p2
+    Create mounting points:     sudo mkdir /mnt/temp_part1/ & sudo mkdir /mnt/temp_part2/
+    Mount partitions:           sudo mount /dev/mapper/loop40p1 /mnt/temp_part1
+                                sudo mount /dev/mapper/loop40p2 /mnt/temp_part2
+    Copy boot contents to sd card image:sudo cp -r -a Boot-Partition/* /mnt/temp_part1/
+    Copy root contents to sd card image:sudo cp -r -a Root-Partition/* /mnt/temp_part2/
+    Wait for completion:        sudo sync
+    Unmount:                    sudo umount /dev/mapper/loop40p1 /mnt/temp_part1
+                                sudo umount /dev/mapper/loop40p2 /mnt/temp_part2
+    Delete loop devices         sudo kpartx -d sd.img
+    Use BalenaEtcher to flash sd.img to sd card
+    
+Task 1.5
+    Connect Ultra96 and JTAC board
+    Connect JTAC board via USB cable to computer
+    Run:                        dmesg | tail
+                                Resulting in    [22603.505297] usb 3-5.4: New USB device strings: Mfr=1, Product=2, SerialNumber=3
+                                                [22603.505298] usb 3-5.4: Product: JTAG+Serial
+                                                [22603.505300] usb 3-5.4: Manufacturer: Xilinx
+                                                [22603.505301] usb 3-5.4: SerialNumber: 1234-oj1
+                                                [22603.508341] ftdi_sio 3-5.4:1.0: FTDI USB Serial Device converter detected
+                                                [22603.508363] usb 3-5.4: Detected FT2232H
+                                                [22603.508503] usb 3-5.4: FTDI USB Serial Device converter now attached to ttyUSB0
+                                                [22603.510195] ftdi_sio 3-5.4:1.1: FTDI USB Serial Device converter detected
+                                                [22603.510213] usb 3-5.4: Detected FT2232H
+                                                [22603.510336] usb 3-5.4: FTDI USB Serial Device converter now attached to ttyUSB1
+    Allow access:               sudo chmod 666 /dev/ttyUSB0 & sudo chmod 666 /dev/ttyUSB1
+    Find Baud Rate: 115200 from https://www.seas.upenn.edu/~ese5320/fall2023/handouts/hw3/u96v2_setup.html
+    Open in putty:              Serial - /dev/ttyUSB1 – 115200
+    
+    Initialize Arch on Ultra96
+    Get root privileges:        su -> root
+    Initialize pacman           mv /etc/pacman.d/gnupg /dev/null
+                                pacman-key –init
+                                pacman-key –populate
+                                pacman -S archlinux-keyring
+    Install gcc                 su
+                                pacman -Syu
+                                pacman -S gcc
+                                
+Task 1.6
+    Create Vivado project
+        Open Vivado -> Create Project -> Next
+        Project Name: ESHO2_Task1
+        Next -> RTL Project -> Next -> Next -> Next
+        Select Boards: Ultra96-V2 Single Board Computer -> Next -> Finish
+    Create Block Design
+        Create Block Design -> Name: system_task1 -> Ok
+        Add Repository: Tools -> Settings -> IP -> Repository -> Add "MysteryRegs" folder -> Apply -> Ok
+    Add IP Cores
+        Zynq UltraScale + MPSoC
+        MysteryRegs
+    Customize Zynq UltraScale + MPSoC
+        Double Click on IP Core -> PS-PL Configuration -> PS-PL Interfaces -> Master Interface -> Select only AXI_HPM0_FPD -> Ok
+        
+Task 1.7
+    Continuation from Task 1.6
+    Add Clocking Wizard
+    Customize Clocking Wizard
+        Double Click on IP Core -> Clocking Options -> Input Clock Information -> Primary -> Source -> Set No buffer
+                                   Output Clocks -> ResetType -> Set Active Low
+    Connect IP Cores
+    Add IP Cores
+        Processor System Reset
+        AXI Interconnect
+    Connect ports (Image given as system_task1.pdf)
+    
+Task 1.8
+    Continuation from Task 1.7
+    Check MysteryRegs Address Editor : Master Base Address 0xA000_0000
+    Create HDL Wrapper:     Sources -> Design Sources -> system_task1 -> right click -> Create HDL Wrapper -> Ok
+    Generate Bitstream
+    Export Bitstream:       File -> Export -> Export Bitstream -> ESHO2_Task1.bit
+    Create FullBitstream.bif (see file in Task1/)
+    Create .bit.bin file:   bootgen -image Full_Bitstream.bif -arch zynqmp -process_bitstream bin
+    Copy .bit.bin to Ultra96
+    Check copy by comparing sha256sum results
+    Load bitstream using "LoadBitstream.sh" with root privileges (see file in Task1/)
+    Check for blue light on board
+    
+    Write Task1_8_MysteryRegsTester.c to examine MysteryRegs (see file in Task1/)
+    Execute Task1_8_MysteryRegsTester
+        
+    Functionality of Register r0:
+            As Pseudo Code:
+                (int32 read) funcR0 (int32 write)
+                {
+                    read = write - 23;
+                }
+                
+    Functionality of Register r4:
+            As Pseudo Code:
+                (int32 read) funcR4 (int32 write)
+                {
+                    read = write;
+                }
+                
+    Functionality of Register r8:
+            As Pseudo Code:
+                persistent int32 reg;
+                (int32 read) funcR8 (int32 write)
+                {
+                    reg = reg + write;
+                    read = reg;
+                }
+                
+    Functionality of Register r12:
+            As Pseudo Code:
+                persistent int32 reg0;
+                persistent int32 reg1;
+                (int32 read) funcR12 (int32 write)
+                {
+                    reg1 = reg0;
+                    reg0 = write;
+                    read = reg0 * reg1;
+                }
+
+    Functionality of Register r16:
+            As Pseudo Code:
+                persistent int32 reg;
+                (int32 read) funcR16 (int32 write)
+                {
+                    int32 rand = randomInt32();
+                    reg = reg * rand;
+                    read = reg;
+                }
