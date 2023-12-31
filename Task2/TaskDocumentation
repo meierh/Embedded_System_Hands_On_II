@@ -1,0 +1,35 @@
+Task 2.3
+    Implemented Adder IP (see Task2/Adder/src/Adder.bsv)
+    
+Task 2.4
+    Implemented Adder IP Tests (see Task2/Adder/src/TestsMainTest.bsv)
+    
+Task 2.5
+    Created IP core of Adder:       make SIM_TYPE=VERILOG ip
+    Re-done Vivado project creation from Task 1.6 and 1.7 replacing MysteryRegs with Adder and every task1 with task2
+    Check Adder Address Editor : Master Base Address 0xA000_0000
+    Mark AXI Connection from Interconnect to Adder as debug
+    Add System ILA
+    Connect AXI, Clock and Reset identically as Adder
+    Add 2xDebug Bridge
+    Configure Debug Bridge 0
+        Double Click on IP Core -> Debug Modes -> Bridge Type -> Set "From AXI to BSCAN"
+                                   BSCAN Options -> JTAG Fallback Options -> Set "Internal BSCAN Primitive"
+    Configure Debug Bridge 1
+        Double Click on IP Core -> Debug Modes -> Bridge Type -> Set "From BSCAN to DebugHub"
+        
+    Connect ports (Image given as system_task2.pdf)
+    Create HDL Wrapper:     Sources -> Design Sources -> system_task1 -> right click -> Create HDL Wrapper -> Ok
+    Create Bitstream
+    Copy .bit.bin to Ultra96
+    Check copy by comparing sha256sum results
+    Load bitstream using "LoadBitstream.sh" with root privileges (see file in Task2/)
+    Check for blue light on board
+    
+    Write Task2_5_AdderDebug.c to examine Adder (see file in Task2/)
+    Execute Task2_5_AdderDebug
+    
+    Goto:   Vivado/Vivado/2023.2/data/xicom/cable_drivers/lin64/install_script/install_drivers
+    And execute: sudo ./install_drivers
+    Open Hardware Manager
+    Execute Autoconnect    

@@ -1,0 +1,4 @@
+all:
+{
+        ESHO2_Task2.bit /* Bitstream file name */
+}

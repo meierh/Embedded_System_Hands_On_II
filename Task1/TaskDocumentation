@@ -110,6 +110,8 @@ Task 1.7
     Add IP Cores
         Processor System Reset
         AXI Interconnect
+    Customize AXI Interconnect
+        Double Click on IP Core -> Top Level Settings -> Number of Master Interfaces -> Set 1
     Connect ports (Image given as system_task1.pdf)
     
 Task 1.8
