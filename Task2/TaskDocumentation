@@ -32,4 +32,30 @@ Task 2.5
     Goto:   Vivado/Vivado/2023.2/data/xicom/cable_drivers/lin64/install_script/install_drivers
     And execute: sudo ./install_drivers
     Open Hardware Manager
-    Execute Autoconnect    
+    Execute Autoconnect
+    
+    Analysis on the basis and in order of "Task_2_5_Debugger.c" (see file in Task2/)
+    
+        Trigger on AWVALID == 1 to detect write a=13
+            see Task2/ILA_Analysis_WriteA_1.png -- transfer of 13 between cycle 512 and 515
+            
+        Trigger on WDATA == 0x0000_0057 to detect write b=87
+            see Task2/ILA_Analysis_WriteB_1.png -- transfer of 87 between cycle 513 and 516
+            
+        Trigger on RDATA == 0x0000_0064 to detect read c=100
+            see Task2/ILA_Analysis_ReadC_1.png -- transfer of 100 between cycle 510 and 513
+            
+        Trigger on WDATA == 0x0000_0021 to detect write a=33
+            see Task2/ILA_Analysis_WriteA_2.png -- transfer of 33 between cycle 513 and 516
+            
+        Trigger on RDATA == 0x0000_0078 to detect read c=120
+            see Task2/ILA_Analysis_WriteC_3.png -- transfer of 120 between cycle 510 and 513
+            
+        Trigger on WDATA == 0x0000_0039 to detect write b=57
+            see Task2/ILA_Analysis_WriteB_2.png -- transfer of 57 between cycle 513 and 516
+            
+        Trigger on WDATA == 0x0000_001b to detect write b=27
+            see Task2/ILA_Analysis_WriteB_3.png -- transfer of 27 between cycle 516 and 519
+            
+        Trigger on RDATA == 0x0000_005a to detect read c=90
+            see Task2/ILA_Analysis_WriteC_4.png -- transfer of 90 between cycle 510 and 513
