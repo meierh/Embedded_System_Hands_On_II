@@ -129,22 +129,32 @@ Task 1.8
     
     Write Task1_8_MysteryRegsTester.c to examine MysteryRegs (see file in Task1/)
     Execute Task1_8_MysteryRegsTester
-        
-    Functionality of Register r0:
+    See Task1_8_MysteryRegsTester_PRINTOUT file
+    
+    Examination of Register r0:
+            Write span of numbers from -4 to 64 and read results
+    Detected Functionality of Register r0:
+            Simple write-read function with no storage behavior
             As Pseudo Code:
                 (int32 read) funcR0 (int32 write)
                 {
                     read = write - 23;
                 }
                 
+    Examination of Register r4:
+            Write span of numbers from -4 to 64 and read results
     Functionality of Register r4:
+            Simple write-read function with no storage behavior
             As Pseudo Code:
                 (int32 read) funcR4 (int32 write)
                 {
                     read = write;
                 }
-                
+
+    Examination of Register r8:
+            Write span of numbers from -4 to 64 and read results
     Functionality of Register r8:
+            Function with memory persisting between two calls
             As Pseudo Code:
                 persistent int32 reg;
                 (int32 read) funcR8 (int32 write)
@@ -153,7 +163,10 @@ Task 1.8
                     read = reg;
                 }
                 
+    Examination of Register r12:
+            Write various numbers multiple times and read results
     Functionality of Register r12:
+            Function with memory persisting having effect on three calls
             As Pseudo Code:
                 persistent int32 reg0;
                 persistent int32 reg1;
@@ -164,12 +177,16 @@ Task 1.8
                     read = reg0 * reg1;
                 }
 
+    Examination of Register r16:
+            Read 46 times from register to get sequence up to the overflow bound of int32
     Functionality of Register r16:
-            As Pseudo Code:
-                persistent int32 reg;
+            As Pseudo Code: (The Fibonacci sequence)
+                persistent int32 reg0=0;
+                persistent int32 reg1=1;
                 (int32 read) funcR16 (int32 write)
                 {
-                    int32 rand = randomInt32();
-                    reg = reg * rand;
-                    read = reg;
+                    int32 temp = reg1;
+                    reg1 = reg0 + reg1;
+                    read = reg0;
+                    reg0 = temp;
                 }

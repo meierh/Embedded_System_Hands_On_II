@@ -1,0 +1,21 @@
+[root@alarm Task2_5]# ./Task2_5_AdderDebug
+Mystery Regs Base: a0000000
+Mystery Regs End: a0000fff
+Opened memory
+Pagesize:4096
+Map size: 4095
+Mapped main memory to pointer: 8305e000
+Register Adresses[wA:8305e000 , wB:8305e004 , rC:8305e008]
+-------Test Adder functionality-------
+        Write 13 to a
+        Write 87 to b
+Read 100 from c
+Read 100 from c
+        Write 33 to a
+Read 120 from c
+        Write 57 to b
+Read 90 from c
+        Write 27 to b
+        Write -43 to b
+Read -10 from c
+----------------------------------------------------------

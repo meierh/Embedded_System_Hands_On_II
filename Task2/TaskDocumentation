@@ -1,8 +1,18 @@
 Task 2.3
     Implemented Adder IP (see Task2/Adder/src/Adder.bsv)
+    Two write registers a and b at addresses 0xA000_0000 and 0xA000_0004 (global)
+    A read register c at address 0xA000_0008
+    The IP core implements the function c = a + b
+    The computation is only done if a and b are valid inputs and a or b have been written to since the last computation of c 
     
 Task 2.4
     Implemented Adder IP Tests (see Task2/Adder/src/TestsMainTest.bsv)
+    Tested multiple scenarios:
+        Write a and b and read c
+        Read c multiple times
+        Updating only a and reading c
+        Updating only b and reading c
+        Updating b with one number an updating b again with another and read c afterwards
     
 Task 2.5
     Created IP core of Adder:       make SIM_TYPE=VERILOG ip
@@ -28,6 +38,7 @@ Task 2.5
     
     Write Task2_5_AdderDebug.c to examine Adder (see file in Task2/)
     Execute Task2_5_AdderDebug
+    See Task2_5_AdderDebug_PRINTOUT file
     
     Goto:   Vivado/Vivado/2023.2/data/xicom/cable_drivers/lin64/install_script/install_drivers
     And execute: sudo ./install_drivers

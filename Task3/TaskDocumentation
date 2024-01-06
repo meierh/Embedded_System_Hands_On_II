@@ -2,3 +2,27 @@ Task 3.1
     Install make:                   pacman -S make
     Install linux kernel headers:   pacman -S linux-headers
                                     1
+
+    Recompile xilinx-linux on Ultra96
+    Prepare Ultra96                 pacman -Syu
+                                    pacman -S base-devel
+                                    pacman -S xmlto
+                                    pacman -S kmod
+                                    pacman -S inetutils
+                                    pacman -S bc
+                                    pacman -S libelf
+                                    pacman -S git
+                                    pacman -S cpio
+                                    pacman -S perl
+                                    pacman -S tar
+                                    pacman -S xz                                    
+    Clone Repository:           git clone https://github.com/Xilinx/linux-xlnx.git
+    Add following lines to the end of "linux-xlnx/arch/arm64/configs/xilinx_zynqmp_defconfig" : 
+                                CONFIG_VFIO=y 
+                                CONFIG_VFIO_PLATFORM=y
+                                CONFIG_VFIO_IOMMU_TYPE1=y 
+                                CONFIG_ARM_SMMU=y
+    Run Configure:              ARCH=arm64 make xilinx_zynqmp_defconfig
+    Configure Kernel:           ARCH=arm64 make menuconfig
+    Set:                        Device Drivers -> Network device support -> USB Network Adapters -> Realtek RTL8152/RTL8153 Based USB Ethernet Adapters ; press Y for built-in
+    Compile:                    make ARCH=arm64
