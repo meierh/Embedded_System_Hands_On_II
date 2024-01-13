@@ -2,209 +2,264 @@ package SobelFilter;
 
 import List :: * ;
 import Vector :: * ;
+import FIFO :: * ;
 import BlueAXI :: * ;
 import AXI4_Types :: * ;
+import SobelTypes :: * ;
+import SobelOperator :: * ;
 
-Integer AXIConfigAddrWidth = 8;
-Integer AXIConfigDataWidth = 64;
+typedef 8 AXICONFIGADDRWIDTH;
+typedef 64 AXICONFIGDATAWIDTH;
 
-Integer batchSquareLen = 64;
-Integer maxAdmisKernelSize = 12;
-Integer simultLineProcessed = 2;
+typedef 1080 MAXIMAGEWIDTH;
+typedef 1 SIMULTROWS;
 
-Integer AXIImageAddrWidth = 8;
-Integer AXIImageRdDataWidth = 8;
-Integer AXIImageWrDataWidth = 8;
-Integer AXIImageIDWidth = 8;
-Integer AXIImageUserWidth = 8;
+// must be SIMULTROWS+maxPad(8)
+typedef 9 IMAGEDATAHEIGHT;
+// must be MAXIMAGEWIDTH+maxPad(8)
+typedef 1088 IMAGEDATAWIDTH;
 
-(* always_ready, always_enabled *)
+typedef 8 AXIIMAGEADDRWIDTH;
+typedef 128 AXIIMAGEDATAWIDTH;
+typedef 1 AXIIMAGEIDWIDTH;
+typedef 1 AXIIMAGEUSERWIDTH;
+
+//(* always_ready, always_enabled *)
 interface SobelFilter;
 // Add custom interface definitions
-    (*prefix = "AXI_Config"*) interface AXI4_Lite_Slave_Rd_Fab#(AXIConfigAddrWidth, AXIConfigDataWidth) axiC_rd;
-    (*prefix = "AXI_Config"*) interface AXI4_Lite_Slave_Wr_Fab#(AXIConfigAddrWidth, AXIConfigDataWidth) axiC_wr;
+    (*prefix = "AXI_Config"*) interface AXI4_Lite_Slave_Rd_Fab#(AXICONFIGADDRWIDTH, AXICONFIGDATAWIDTH) axiC_rd;
+    (*prefix = "AXI_Config"*) interface AXI4_Lite_Slave_Wr_Fab#(AXICONFIGADDRWIDTH, AXICONFIGDATAWIDTH) axiC_wr;
     
-    (*prefix = "AXI_Image"*) interface AXI4_Master_Rd_Fab#(AXIImageAddrWidth,AXIImageRdDataWidth,AXIImageIDWidth,
-                                                           AXIImageUserWidth);
-    (*prefix = "AXI_Image"*) interface AXI4_Master_Wr_Fab#(AXIImageAddrWidth,AXIImageWrDataWidth,AXIImageIDWidth,
-                                                           AXIImageUserWidth);
+    (*prefix = "AXI_Image"*) interface AXI4_Master_Rd_Fab#(AXIIMAGEADDRWIDTH,AXIIMAGEDATAWIDTH,AXIIMAGEIDWIDTH,
+                                                           AXIIMAGEUSERWIDTH) axiD_rd;
+    (*prefix = "AXI_Image"*) interface AXI4_Master_Wr_Fab#(AXIIMAGEADDRWIDTH,AXIIMAGEDATAWIDTH,AXIIMAGEIDWIDTH,
+                                                           AXIIMAGEUSERWIDTH) axiD_wr;
 endinterface
 
 module mkSobelFilter(SobelFilter);
 
 /******************************* Configuration Registers **********************************************/
-    Reg#(Bit#(AXIConfigDataWidth)) inputImageAddress <- mkReg(0);
-    Reg#(Bool) inputImageAddressValid <- mkReg(False);
-    
-    Reg#(Bit#(AXIConfigDataWidth)) outputImageAddress <- mkReg(0);
-    Reg#(Bool) outputImageAddressValid <- mkReg(False);
-    
+    Reg#(Bit#(AXICONFIGDATAWIDTH)) inputImageAddress <- mkReg(0);
+    Reg#(Bit#(AXICONFIGDATAWIDTH)) outputImageAddress <- mkReg(0);
+    Reg#(UInt#(AXICONFIGDATAWIDTH)) resolutionX <- mkReg(0);
+    Reg#(UInt#(AXICONFIGDATAWIDTH)) resolutionY <- mkReg(0);
+    Reg#(FilterType) kernelSize <- mkReg(Sobel3);
     Reg#(Bool) executeCmd <- mkReg(False);
-    
-    Reg#(UInt(AXIConfigDataWidth/2)) resolutionX <- mkReg(0);
-    Reg#(Bool) resolutionXValid <- mkReg(False);
-    Reg#(UInt(AXIConfigDataWidth/2)) resolutionY <- mkReg(0);
-    Reg#(Bool) resolutionYValid <- mkReg(False);
-    
-    Reg#(UInt(AXIConfigDataWidth/2)) kernelSize <- mkReg(0);
-    Reg#(Bool) kernelSizeValid <- mkReg(False);
-    
-    typedef enum {Unconfigured,Configured,Executed,Finished} TopLevelStatusInfo deriving (Bits);    
-    Reg#(TopLevelStatusInfo) TopLevelStatus <- mkReg(Unconfigured);
-    
-    typedef struct {UInt#(32) x0; UInt#(32) y0;} ImageCoord;
+    Reg#(TopLevelStatusInfo) topLevelStatus <- mkReg(Configuration);
     
 /************************************ AXI Configuration ***********************************************/
-    List#(RegisterOperator#(AXIConfigAddrWidth,AXIConfigDataWidth)) configurationOperations;
+    List#(RegisterOperator#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH)) configurationOperations;
+    
+// Read status operation
+    RegisterOperator#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) readStatus;
+    function ActionValue#(Bit#(AXICONFIGDATAWIDTH)) readStat (AXI4_Lite_Prot p);
+              actionvalue
+                    return extend(pack(topLevelStatus));
+               endactionvalue
+    endfunction : readStat
+    ReadOperation#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) readStatStruct;
+    readStatStruct = ReadOperation { index:0, fun:readStat };
+    readStatus = tagged Read readStatStruct;
+    configurationOperations = List::replicate(1,readStatus);
     
 // Write input address operation
-    RegisterOperator#(AXIConfigAddrWidth,AXIConfigDataWidth) writeInputAddress;    
-    function Action writeInputAddr (Bit#(AXIConfigDataWidth) d, Bit#(TDiv#(AXIConfigDataWidth, 8)) s, AXI4_Lite_Prot p);
-              action
+    RegisterOperator#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeInputAddress;    
+    function Action writeInputAddr (Bit#(AXICONFIGDATAWIDTH) d, Bit#(TDiv#(AXICONFIGDATAWIDTH, 8)) s, AXI4_Lite_Prot p);
+                action
                     inputImageAddress <= unpack(d);
-                    inputImageAddressValid <= True;
-                    //Int#(AXIConfigDataWidth) aVar = unpack(d);
-                    //$display("Set a to: %d", aVar);
-               endaction
+                    /*
+                    if(topLevelStatus==Unconfigured)
+                        inputImageAddressValid <= True;
+                    */
+                endaction
     endfunction : writeInputAddr
-    WriteOperation#(AXIConfigAddrWidth,AXIConfigDataWidth) writeInputAddrStruct;
-    writeInputAddrStruct = WriteOperation { index : 8'b00000000 /* 0 */ , fun : writeInputAddr };
+    WriteOperation#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeInputAddrStruct;
+    writeInputAddrStruct = WriteOperation { index:8, fun:writeInputAddr };
     writeInputAddress = tagged Write writeInputAddrStruct;
-    configurationOperations = replicate(1,writeInputAddress);
+    configurationOperations = List::cons(writeInputAddress,configurationOperations);
     
 // Write output address operation
-    RegisterOperator#(AXIConfigAddrWidth,AXIConfigDataWidth) writeOutputAddress;    
-    function Action writeOutputAddr (Bit#(AXIConfigDataWidth) d, Bit#(TDiv#(AXIConfigDataWidth, 8)) s, AXI4_Lite_Prot p);
-              action
+    RegisterOperator#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeOutputAddress;    
+    function Action writeOutputAddr (Bit#(AXICONFIGDATAWIDTH) d, Bit#(TDiv#(AXICONFIGDATAWIDTH, 8)) s, AXI4_Lite_Prot p);
+                action
                     outputImageAddress <= unpack(d);
-                    outputImageAddressValid <= True;
-                    //Int#(AXIConfigDataWidth) aVar = unpack(d);
-                    //$display("Set a to: %d", aVar);
-               endaction
+                    /*
+                    if(topLevelStatus==Unconfigured)
+                        outputImageAddressValid <= True;
+                    */
+                endaction
     endfunction : writeOutputAddr
-    WriteOperation#(AXIConfigAddrWidth,AXIConfigDataWidth) writeOutputAddrStruct;
-    writeOutputAddrStruct = WriteOperation { index : 8'b00001000 /* 8 */, fun : writeOutputAddr };
+    WriteOperation#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeOutputAddrStruct;
+    writeOutputAddrStruct = WriteOperation { index:16, fun:writeOutputAddr };
     writeOutputAddress = tagged Write writeOutputAddrStruct;
     configurationOperations = List::cons(writeOutputAddress,configurationOperations);
     
-// Write execution command operation
-    RegisterOperator#(AXIConfigAddrWidth,AXIConfigDataWidth) writeExecuteCommand;    
-    function Action writeExecuteCmd (Bit#(AXIConfigDataWidth) d, Bit#(TDiv#(AXIConfigDataWidth, 8)) s, AXI4_Lite_Prot p);
-              action
-                    executeCmd <= True;
-                    //Int#(AXIConfigDataWidth) aVar = unpack(d);
-                    //$display("Set a to: %d", aVar);
-               endaction
-    endfunction : writeExecuteCmd
-    WriteOperation#(AXIConfigAddrWidth,AXIConfigDataWidth) writeExecuteCmdStruct;
-    writeExecuteCmdStruct = WriteOperation { index : 8'b00010000 /* 16 */, fun : writeExecuteCmd };
-    writeExecuteCommand = tagged Write writeExecuteCmdStruct;
-    configurationOperations = List::cons(writeExecuteCommand,configurationOperations);
+// Write resolutionX command operation
+    RegisterOperator#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeResolutionX;    
+    function Action writeResolutionXSize (Bit#(AXICONFIGDATAWIDTH) d, Bit#(TDiv#(AXICONFIGDATAWIDTH, 8)) s, AXI4_Lite_Prot p);
+                action
+                    resolutionX <= unpack(d);
+                    /*
+                    if(topLevelStatus==Unconfigured)
+                        resolutionXValid <= True;
+                    */
+                endaction
+    endfunction : writeResolutionXSize
+    WriteOperation#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeResolutionXStruct;
+    writeResolutionXStruct = WriteOperation { index:24, fun:writeResolutionXSize };
+    writeResolutionX = tagged Write writeResolutionXStruct;
+    configurationOperations = List::cons(writeResolutionX,configurationOperations);
     
-// Write resolution command operation
-    RegisterOperator#(AXIConfigAddrWidth,AXIConfigDataWidth) writeResolution;    
-    function Action writeResolutionSize (Bit#(AXIConfigDataWidth) d, Bit#(TDiv#(AXIConfigDataWidth, 8)) s, AXI4_Lite_Prot p);
-              action
-                    Tuple2#(Bit#(AXIConfigDataWidth/2), Bit#(AXIConfigDataWidth/2)) resXY = split(d);
-                    resolutionX <= unpack(tpl_1(resXY));
-                    resolutionXValid <= True;
-                    resolutionY <= unpack(tpl_2(resXY));
-                    resolutionYValid <= True;
-                    //Int#(AXIConfigDataWidth) aVar = unpack(d);
-                    //$display("Set a to: %d", aVar);
-               endaction
-    endfunction : writeResolutionSize
-    WriteOperation#(AXIConfigAddrWidth,AXIConfigDataWidth) writeResolutionStruct;
-    writeResolutionStruct = WriteOperation { index : 8'b00011000 /* 24 */, fun : writeResolutionSize };
-    writeResolution = tagged Write writeResolutionStruct;
-    configurationOperations = List::cons(writeResolution,configurationOperations);    
-
+// Write resolutionY command operation
+    RegisterOperator#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeResolutionY;    
+    function Action writeResolutionYSize (Bit#(AXICONFIGDATAWIDTH) d, Bit#(TDiv#(AXICONFIGDATAWIDTH, 8)) s, AXI4_Lite_Prot p);
+                action
+                    resolutionY <= unpack(d);
+                    /*
+                    if(topLevelStatus==Unconfigured)
+                        resolutionYValid <= True;
+                    */
+                endaction
+    endfunction : writeResolutionYSize
+    WriteOperation#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeResolutionYStruct;
+    writeResolutionYStruct = WriteOperation { index:32, fun:writeResolutionYSize };
+    writeResolutionY = tagged Write writeResolutionYStruct;
+    configurationOperations = List::cons(writeResolutionY,configurationOperations);
+    
 // Write kernel size operation
-    RegisterOperator#(AXIConfigAddrWidth,AXIConfigDataWidth) writeKernelSize;    
-    function Action writeKernelSz (Bit#(AXIConfigDataWidth) d, Bit#(TDiv#(AXIConfigDataWidth, 8)) s, AXI4_Lite_Prot p);
-              action
-                    kernelSize <= unpack(d);
-                    kernelSizeValid <= True;
-                    //Int#(AXIConfigDataWidth) aVar = unpack(d);
-                    //$display("Set a to: %d", aVar);
-               endaction
+    RegisterOperator#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeKernelSize;    
+    function Action writeKernelSz (Bit#(AXICONFIGDATAWIDTH) d, Bit#(TDiv#(AXICONFIGDATAWIDTH, 8)) s, AXI4_Lite_Prot p);
+                action
+                    Bit#(4) lastBits = d[3:0];
+                    case (lastBits)
+                        pack(Sobel3) : kernelSize <= Sobel3;
+                        pack(Sobel5) : kernelSize <= Sobel5;
+                        pack(Sobel7) : kernelSize <= Sobel7;
+                        pack(Sobel9) : kernelSize <= Sobel9;
+                        default : kernelSize <= Sobel3;
+                    endcase
+                endaction
     endfunction : writeKernelSz
-    WriteOperation#(AXIConfigAddrWidth,AXIConfigDataWidth) writeKernelStruct;
-    writeKernelStruct = WriteOperation { index : 8'b00100000 /* 32 */, fun : writeKernelSz };
+    WriteOperation#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeKernelStruct;
+    writeKernelStruct = WriteOperation { index:40, fun:writeKernelSz };
     writeKernelSize = tagged Write writeKernelStruct;
     configurationOperations = List::cons(writeKernelSize,configurationOperations);
     
-// Read status operation
-    RegisterOperator#(AXIConfigAddrWidth,AXIConfigDataWidth) readStatus;
-    function ActionValue#(Bit#(AXIConfigDataWidth)) readStat (AXI4_Lite_Prot p);
-              actionvalue
-                    //$display("Read c to: %d", c);
-                    return pack(TopLevelStatus);
-               endactionvalue
-    endfunction : readStat
-    ReadOperation#(AXIConfigAddrWidth,AXIConfigDataWidth) readStatStruct;
-    readStatStruct = ReadOperation { index : 8'b00101000 /* 40 */, fun : readStat };
-    readCOperation = tagged Read readStatStruct;
-    configurationOperations = List::cons(readCOperation,configurationOperations);
+// Write execution command operation
+    RegisterOperator#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeExecuteCommand;    
+    function Action writeExecuteCmd (Bit#(AXICONFIGDATAWIDTH) d, Bit#(TDiv#(AXICONFIGDATAWIDTH, 8)) s, AXI4_Lite_Prot p);
+                action
+                    if(topLevelStatus==Configuration)
+                        executeCmd <= True;
+                    else
+                        executeCmd <= False;
+                endaction
+    endfunction : writeExecuteCmd
+    WriteOperation#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeExecuteCmdStruct;
+    writeExecuteCmdStruct = WriteOperation { index:48, fun : writeExecuteCmd };
+    writeExecuteCommand = tagged Write writeExecuteCmdStruct;
+    configurationOperations = List::cons(writeExecuteCommand,configurationOperations);
     
     // Construct AXI Slave  
-    GenericAxi4LiteSlave#(AXIConfigAddrWidth,AXIConfigDataWidth) axiLiteSlave <- mkGenericAxi4LiteSlave(configurationOperations,1,1);
-    
-    interface axiC_rd  = axiLiteSlave.s_rd;
-    interface axiC_wr  = axiLiteSlave.s_wr;
+    GenericAxi4LiteSlave#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) axiConfigSlave <- mkGenericAxi4LiteSlave(configurationOperations,1,1);
+
 /******************************************************************************************************/
 
 
-/************************************** Image Registers ***********************************************/
-    Integer batchSquareLenWithPad = batchSquareLen+maxAdmisKernelSize;
-    Integer batchSquareWithPad = batchSquareLenWithPad*batchSquareLenWithPad;
-    Vector#(batchSquareWithPad,Reg#(UInt#(8))) inputStorage;
-    
-    Vector#(simultLineProcessed,ImageCoord)) outputStorageCoords;
-    Vector#(simultLineProcessed,Vector#(batchSquareLen,Reg#(UInt#(8)))) outputStorage;
-    
-    typedef enum {Strategize,FillUp,NextLines} ExecutionZoneInfo deriving (Bits);    
-    Reg#(ExecutionStatusInfo) ExecutionZone <- mkReg(Strategize);
-    
-    typedef enum {DataMovement,Compute} ExecutionPhaseInfo deriving (Bits);    
-    Reg#(ExecutionPhaseInfo) ExecutionPhase <- mkReg(Compute);
-    
-    function Integer squareToLinearCoord (Integer x, Integer y);
-        return x + batchSquareLenWithPad * y;
-    endfunction: squareToLinearCoord
-    
-    function Action shiftYPlusDir();
-        action
-            for(Integer batchX = 0 ;
-                batchX < batchSquareLenWithPad-simultLineProcessed;
-                batchX = batchX + 1)
-                for(Integer batchY = 0;
-                    batchY < batchSquareLenWithPad;
-                    batchY = batchY + 1)
-                    Integer linearCoordDest = squareToLinearCoord(batchX,batchY);
-                    Integer linearCoordOrig = squareToLinearCoord(batchX,batchY+simultLineProcessed);
-                    inputStorage[linearCoordDest] <= inputStorage[linearCoordOrig];
-        endaction
-    endfunction : shiftYPlusDir
-    
-    function Action compute(Integer y0);
-        action
-            for(Integer batchX = 0 ;
-                batchX < simultLineProcessed;
-                batchX = batchX + 1)
-                for(Integer batchY = 0;
-                    batchY < batchSquareLenWithPad;
-                    batchY = batchY + 1)
-                    Integer linearCoord = squareToLinearCoord(batchX,batchY);
+/********************************* Image Filtering Registers ******************************************/
+    Reg#(Bit#(AXICONFIGDATAWIDTH)) _inputImageAddress <- mkReg(0);
+    Reg#(Bit#(AXICONFIGDATAWIDTH)) _outputImageAddress <- mkReg(0);
+    Reg#(UInt#(AXICONFIGDATAWIDTH)) _resolutionX <- mkReg(0);
+    Reg#(UInt#(AXICONFIGDATAWIDTH)) _resolutionY <- mkReg(0);
+    Reg#(FilterType) _kernelSize <- mkReg(Sobel3);
+    Reg#(FilterStatus) _filteringStatus <- mkReg(Idle);
 
-                    inputStorage[linearCoordDest] <= inputStorage[linearCoordOrig];
-        endaction
-    endfunction : compute
+    rule startComputation (executeCmd);
+        _inputImageAddress <= inputImageAddress;
+        _outputImageAddress <= outputImageAddress;
+        _resolutionX <= resolutionX;
+        _resolutionY <= resolutionY;
+        _kernelSize <= kernelSize;
+        _filteringStatus <= Prepared;
+        executeCmd <= False;
+        topLevelStatus <= Execution;
+    endrule
+    
+    
+    //Vector#(IMAGEDATAHEIGHT,Vector#(IMAGEDATAWIDTH,Reg#(UInt#(8)))) imageData;
+    Vector#(IMAGEDATAHEIGHT,Reg#(Vector#(IMAGEDATAWIDTH,UInt#(8)))) imageData;
+    Vector#(IMAGEDATAHEIGHT,Reg#(UInt#(32))) imageData_ImageRowInd;
+    for(Integer i=0; i<valueOf(IMAGEDATAHEIGHT); i=i+1)
+    begin
+        imageData[i] <- mkReg(replicate(0));
+        imageData_ImageRowInd[i] <- mkReg(0);
+    end
+    
+    
+    Vector#(SIMULTROWS,Reg#(FilteredDataRegs)) filteredDataRegsStatus;
+    Reg#(Bool) filteredDataFilled <- mkReg(False);
+    Vector#(SIMULTROWS,Reg#(Tuple2#(UInt#(32),Vector#(MAXIMAGEWIDTH,UInt#(8))))) filteredData;
+    for(Integer i=0; i<valueOf(SIMULTROWS); i=i+1)
+    begin
+        filteredDataRegsStatus[i] <- mkReg(Empty);
+        filteredData[i] <- mkReg(tuple2(0,replicate(0)));
+    end
+
+    SobelOperator op <- mkSobelOperator();
+    Vector#(IMAGEDATAWIDTH,SobelOperator) computeCores = replicate(op);
+    
+    rule shiftUp;
+        for(Integer i=valueOf(SIMULTROWS); i<valueOf(IMAGEDATAHEIGHT); i=i+1)
+        begin
+            imageData[i-valueOf(SIMULTROWS)] <= imageData[i];
+            imageData_ImageRowInd[i-valueOf(SIMULTROWS)] <= imageData_ImageRowInd[i];
+        end
+    endrule
+    
+    
+    // Return filtered Data
+    Reg#(int) rowInd <- mkReg(0);
+    Reg#(int) colInd <- mkReg(0);
+    Reg#(SendPhase) sendPhase <- mkReg(PutAddr);
+    Reg#(Bool) sendFilteredDataDone <- mkReg(False);
+    rule sendResults (filteredDataFilled && !sendFilteredDataDone);
+        if(sendPhase == PutAddr) // 
+            begin
+            if(rowInd < valueOf(SIMULTROWS))
+                begin
+                if(colInd < resolutionX)
+                    begin
+                        
+                    end
+                else // Step to next row
+                    begin
+                        colInd <= 0;
+                        rowInd <= rowInd + 1;
+                    end
+                end
+            else // Send of data chunk done
+                begin
+                    rowInd <= 0;
+                    sendFilteredDataDone <= True;
+                end
+            end
+        else
+            begin
+                let req = AXI4_Write_Rq_Addr{id:0,
+            end
+    endrule
 
 /*************************************** Image Transfer************************************************/
-    AXI4_Master_Rd#(AXIImageAddrWidth,AXIImageDataWidth,AXIImageIDWidth,AXIImageUserWidth) <- mkAXI4_Master_Rd(1,1,False);
-    AXI4_Master_Wr#(AXIImageAddrWidth,AXIImageDataWidth,AXIImageIDWidth,AXIImageUserWidth) <- mkAXI4_Master_Wr(1,1,False);
+
+    AXI4_Master_Rd#(AXIIMAGEADDRWIDTH,AXIIMAGEDATAWIDTH,AXIIMAGEIDWIDTH,AXIIMAGEUSERWIDTH) axiDataRd <- mkAXI4_Master_Rd(1,1,False);
+    AXI4_Master_Wr#(AXIIMAGEADDRWIDTH,AXIIMAGEDATAWIDTH,AXIIMAGEIDWIDTH,AXIIMAGEUSERWIDTH) axiDataWr <- mkAXI4_Master_Wr(1,1,1,False);
+
+/*************************************** Image Transfer************************************************/    
+    interface axiC_rd  = axiConfigSlave.s_rd;
+    interface axiC_wr  = axiConfigSlave.s_wr;
     
+    interface axiD_rd = axiDataRd.fab;
+    interface axiD_wr = axiDataWr.fab;
 endmodule
 
 endpackage
