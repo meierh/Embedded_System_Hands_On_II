@@ -76,5 +76,20 @@ package SobelTypes;
         PutAddr = 1'b0,
         PutData = 1'b1
         } SendPhase deriving (Bits,Eq);
+        
+    typedef enum {
+        LoadAndFilter = 1'b0,
+        ShiftAndSend = 1'b1
+        } Computephase deriving (Bits,Eq);
 
+    typedef enum {
+        Request = 1'b0,
+        Read = 1'b1
+        } Loadphase deriving (Bits,Eq);
+        
+    typedef enum {
+        Request = 1'b0,
+        Write = 1'b1
+        } Sendphase deriving (Bits,Eq);
+                
 endpackage

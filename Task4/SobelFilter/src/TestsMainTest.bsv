@@ -11,8 +11,8 @@ package TestsMainTest;
     typedef 8 AXICONFIGADDRWIDTH;
     typedef 64 AXICONFIGDATAWIDTH;
     
-    typedef 8 AXIIMAGEADDRWIDTH;
-    typedef 128 AXIIMAGEDATAWIDTH;
+    typedef 64 AXIIMAGEADDRWIDTH;
+    typedef 8 AXIIMAGEDATAWIDTH;
     typedef 1 AXIIMAGEIDWIDTH;
     typedef 1 AXIIMAGEUSERWIDTH;
     
