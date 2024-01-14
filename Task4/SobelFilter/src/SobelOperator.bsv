@@ -12,35 +12,65 @@ Integer fifoDepth = 50;
 interface SobelOperator;
 // Add custom interface definitions
     method Action configure (FilterType kernelType);
-    method Action insertStencil (Vector#(9,Vector#(9,UInt#(8))) stencil);
+    method Action insertStencil (Vector#(7,Vector#(7,UInt#(8))) stencil);
     method ActionValue#(UInt#(8)) getGradMag ();
 endinterface
 
 module mkSobelOperator(SobelOperator);
 
-    //Vector#(9,Int#(16)) Fx3; Fx3[0]=1; Fx3[1]=0; Fx3[2]=-1; Fx3[3]=2; Fx3[4]=0; Fx3[5]=-2; Fx3[6]=1; Fx3[7]=0; Fx3[8]=-1;
-    //Vector#(9,Int#(16)) Fy3; Fy3[0]=1; Fy3[1]=2; Fy3[2]=1; Fy3[3]=0; Fy3[4]=0; Fy3[5]=0; Fy3[6]=-1; Fy3[7]=-2; Fy3[8]=-1;
-    Int#(32) fx3[3][3] = {{1,0,-1},{2,0,-2},{1,0,-1}};
-    Int#(32) fy3[3][3] = {{1,2,1},{0,0,0},{-1,-2,-1}};    
+    Int#(32) fx3[3][3] = {{ 1, 0,-1},
+                          { 2, 0,-2},
+                          { 1, 0,-1}};
+    Int#(32) fy3[3][3] = {{ 1, 2, 1},
+                          { 0, 0, 0},
+                          {-1,-2,-1}};    
     Int#(32) fxy3Div = 8;
     
+    Int#(32) fx5[5][5] = {{ 1, 2, 0, -2,-1},
+                          { 4, 8, 0, -8,-4},
+                          { 6,12, 0,-12,-6},
+                          { 4, 8, 0, -8,-4},
+                          { 1, 2, 0, -2,-1}};
+    Int#(32) fy5[5][5] = {{ 1, 4,  6, 4, 1},
+                          { 2, 8, 12, 8, 2},
+                          { 0, 0,  0, 0, 0},
+                          {-2,-8,-12,-8,-2},
+                          {-1,-4, -6,-4,-1}};    
+    Int#(32) fxy5Div = 96;
+    
+    Int#(32) fx7[7][7] = {{ 1,  4,  5,   0,  -5, -4, -1},
+                          { 6, 24, 30,   0, -30,-24, -6},
+                          {15, 60, 75,   0, -75, 60, 15},
+                          {20, 80,100,   0,-100,-80,-20},
+                          {15, 60, 75,   0, -75, 60, 15},
+                          { 6, 24, 30,   0, -30,-24, -6},
+                          { 1,  4,  5,   0,  -5, -4, -1}};
+    Int#(32) fy7[7][7] = {{ 1,  6, 15,  20,  15,  6,  1},
+                          { 4, 24, 60,  80,  60, 24,  4},
+                          { 5, 30, 75, 100,  75, 30,  5},
+                          { 0,  0,  0,   0,   0,  0,  0},
+                          {-5,-30,-75,-100, -75, 60, 15},
+                          {-4,-24, 60, -80,  60,-24, -4},
+                          {-1, -6, 15, -20,  15, -6, -1}};    
+    Int#(32) fxy5Div = 1280;
+    
     Reg#(FilterType) _kernelType <- mkReg(Sobel3);
-    Reg#(Vector#(9,Vector#(9,Int#(32)))) kernel_x <- mkRegU();
-    Reg#(Vector#(9,Vector#(9,Int#(32)))) kernel_y <- mkRegU();
+    Reg#(Vector#(7,Vector#(7,Int#(32)))) kernel_x <- mkRegU();
+    Reg#(Vector#(7,Vector#(7,Int#(32)))) kernel_y <- mkRegU();
     Reg#(Int#(32)) div <- mkRegU();
 
-    FIFO#(Vector#(9,Vector#(9,Int#(32)))) imageStencil <- mkSizedFIFO(fifoDepth);
+    FIFO#(Vector#(7,Vector#(7,Int#(32)))) imageStencil <- mkSizedFIFO(fifoDepth);
     
-    FIFO#(Vector#(9,Vector#(9,Int#(32)))) mult_x <- mkSizedFIFO(fifoDepth);
-    FIFO#(Vector#(9,Vector#(9,Int#(32)))) mult_y <- mkSizedFIFO(fifoDepth);
+    FIFO#(Vector#(7,Vector#(7,Int#(32)))) mult_x <- mkSizedFIFO(fifoDepth);
+    FIFO#(Vector#(7,Vector#(7,Int#(32)))) mult_y <- mkSizedFIFO(fifoDepth);
 
     rule multiply;
-        Vector#(9,Vector#(9,Int#(32))) stencil = imageStencil.first;
+        Vector#(7,Vector#(7,Int#(32))) stencil = imageStencil.first;
         imageStencil.deq;
-        Vector#(9,Vector#(9,Int#(32))) stencil_x = newVector;
-        Vector#(9,Vector#(9,Int#(32))) stencil_y = newVector;
-        for(Integer x=0; x<9; x=x+1)
-            for(Integer y=0; y<9; y=y+1)
+        Vector#(7,Vector#(7,Int#(32))) stencil_x = newVector;
+        Vector#(7,Vector#(7,Int#(32))) stencil_y = newVector;
+        for(Integer x=0; x<7; x=x+1)
+            for(Integer y=0; y<7; y=y+1)
                 begin
                     stencil_x[y][x] = stencil[y][x]*kernel_x[y][x];
                     stencil_y[y][x] = stencil[y][x]*kernel_y[y][x];
@@ -53,14 +83,14 @@ module mkSobelOperator(SobelOperator);
     FIFO#(Int#(32)) gy <- mkSizedFIFO(fifoDepth);
     
     rule sumStencil;
-        Vector#(9,Vector#(9,Int#(32))) stencil_x = mult_x.first;
+        Vector#(7,Vector#(7,Int#(32))) stencil_x = mult_x.first;
         mult_x.deq;
-        Vector#(9,Vector#(9,Int#(32))) stencil_y = mult_y.first;
+        Vector#(7,Vector#(7,Int#(32))) stencil_y = mult_y.first;
         mult_y.deq;
         Int#(32) gx_sum = 0;
         Int#(32) gy_sum = 0;
-        for(Integer x=0; x<9; x=x+1)
-            for(Integer y=0; y<9; y=y+1)
+        for(Integer x=0; x<7; x=x+1)
+            for(Integer y=0; y<7; y=y+1)
                 begin
                     gx_sum = gx_sum + stencil_x[y][x];
                     gy_sum = gy_sum + stencil_y[y][x];
@@ -89,10 +119,9 @@ module mkSobelOperator(SobelOperator);
                         Sobel3 : return 3;
                         Sobel5 : return 2;
                         Sobel7 : return 1;
-                        Sobel9 : return 0;
                         endcase;
-        for(Integer x=0; x<9; x=x+1)
-            for(Integer y=0; y<9; y=y+1)
+        for(Integer x=0; x<7; x=x+1)
+            for(Integer y=0; y<7; y=y+1)
                 begin
                     kernel_x[y][x] <= 0;
                     kernel_y[y][x] <= 0;
@@ -110,10 +139,10 @@ module mkSobelOperator(SobelOperator);
                 end
     endmethod
     
-    method Action insertStencil (Vector#(9,Vector#(9,UInt#(8))) stencil);
-        Vector#(9,Vector#(9,Int#(32))) signedStencil;
-        for(Integer i=0; i<9; i=i+1)
-            for(Integer j=0; j<9; j=j+1)
+    method Action insertStencil (Vector#(7,Vector#(7,UInt#(8))) stencil);
+        Vector#(7,Vector#(7,Int#(32))) signedStencil;
+        for(Integer i=0; i<7; i=i+1)
+            for(Integer j=0; j<7; j=j+1)
                 begin
                 Bit#(8) stencil_b = pack(stencil[i][j]);
                 Bit#(32) stencil_b_large = extend(stencil_b);
