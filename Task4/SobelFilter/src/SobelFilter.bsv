@@ -16,15 +16,15 @@ typedef 1 SIMULTROWS;
 
 typedef 10 SLIDINGWINDOWX;
 typedef 10 SLIDINGWINDOWY;
-typedef 18 SLIDINGWINDOWXPAD;
-typedef 18 SLIDINGWINDOWYPAD;
+typedef 16 SLIDINGWINDOWXPAD;
+typedef 16 SLIDINGWINDOWYPAD;
 
 typedef 4 MAXPAD;
 
 // must be equal to SIMULTROWS+maxPad(8)
-typedef 9 IMAGEDATAHEIGHT;
+//typedef 9 IMAGEDATAHEIGHT;
 // must be equal to  MAXIMAGEWIDTH+maxPad(8)
-typedef 188 IMAGEDATAWIDTH;
+//typedef 188 IMAGEDATAWIDTH;
 
 // must be equal to AXICONFIGDATAWIDTH
 typedef 64 AXIIMAGEADDRWIDTH;
@@ -38,8 +38,8 @@ typedef 2 FIFODEPTH;
 
 typedef struct {Bit#(AXICONFIGDATAWIDTH) x; Bit#(AXICONFIGDATAWIDTH) y;} COORD deriving (Bits);
 typedef Vector#(SLIDINGWINDOWYPAD,Vector#(SLIDINGWINDOWXPAD,UInt#(8))) WINDOWDATA_PAD;
-typedef Vector#(SLIDINGWINDOWY,Vector#(SLIDINGWINDOWX,UInt#(8))) WINDOWDATA;
 typedef struct{COORD x0y0; WINDOWDATA_PAD data;} WINDOW_IN deriving (Bits);
+typedef Vector#(SLIDINGWINDOWY,Vector#(SLIDINGWINDOWX,UInt#(8))) WINDOWDATA;
 typedef struct{COORD x0y0; WINDOWDATA data;} WINDOW_OUT deriving (Bits);
 
 //(* always_ready, always_enabled *)
@@ -271,7 +271,7 @@ module mkSobelFilter(SobelFilter);
     
     // Filter image window
     FIFO#(COORD) coordPipe <- mkSizedFIFO(valueOf(FIFODEPTH));
-    Vector#(SLIDINGWINDOWY,Vector#(SLIDINGWINDOWX,SobelOperator)) filterCores;
+    Vector#(SLIDINGWINDOWY,Vector#(SLIDINGWINDOWX,SobelOperator)) filterCores = newVector;
     for(Integer localY=0; localY<valueOf(SLIDINGWINDOWY); localY=localY+1)
         for(Integer localX=0; localX<valueOf(SLIDINGWINDOWX); localX=localX+1)
             filterCores[localY][localX] <- mkSobelOperator();
@@ -284,9 +284,9 @@ module mkSobelFilter(SobelFilter);
         for(Integer windowY=0; windowY<valueOf(SLIDINGWINDOWY); windowY=windowY+1)
             for(Integer windowX=0; windowX<valueOf(SLIDINGWINDOWX); windowX=windowX+1)
                 begin
-                Vector#(9,Vector#(9,UInt#(8))) stencil;
-                for(Integer localY=-4; localY<5; localY=localY+1)
-                    for(Integer localX=-4; localX<5; localX=localX+1)
+                Vector#(7,Vector#(7,UInt#(8))) stencil;// = newVector;
+                for(Integer localY=0; localY<7; localY=localY+1)
+                    for(Integer localX=0; localX<7; localX=localX+1)
                         begin
                         Integer globalWindowY = windowY + localY;
                         Integer globalWindowX = windowX + localX;
@@ -303,6 +303,7 @@ module mkSobelFilter(SobelFilter);
         COORD coords = coordPipe.first;
         coordPipe.deq;
         WINDOW_OUT filteredRes;
+        filteredRes.x0y0 = coords;
         for(Integer windowY=0; windowY<valueOf(SLIDINGWINDOWY); windowY=windowY+1)
             for(Integer windowX=0; windowX<valueOf(SLIDINGWINDOWX); windowX=windowX+1)
                 begin
@@ -393,11 +394,9 @@ module mkSobelFilter(SobelFilter);
         _filteringStatus <= Prepared;
         executeCmd <= False;
         topLevelStatus <= Execution;
-        /*
         for(Integer localY=0; localY<valueOf(SLIDINGWINDOWY); localY=localY+1)
             for(Integer localX=0; localX<valueOf(SLIDINGWINDOWX); localX=localX+1)
                 filterCores[localY][localX].configure(_kernelSize);
-                */
     endrule
     
 
