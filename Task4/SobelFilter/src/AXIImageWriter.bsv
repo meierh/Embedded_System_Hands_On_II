@@ -40,70 +40,61 @@ module mkAXIImageReader#(Integer imageWidth)(AXIImageReader#(numeric type addrwi
     AXI4_Master_Wr#(addrwidth,128,1,1) axiDataWr <- mkAXI4_Master_Wr(1,1,1,False);
     
 // Load data from AXI slave
-    Reg#(Loadphase) loadPhase <- mkReg(Request);
+    /*
     Reg#(Bit#(9)) requestedBeats <- mkReg(0);
     Reg#(Bit#(9)) countBeats <- mkReg(0);
     Reg#(Bit#(addrwidth)) pixelBeatOverhang <- mkRegU();
     
     Reg#(Bit#(13)) writeIndex <- mkReg(0);
-    Reg#(Bool) doneWriting <- mkReg(True);
+    Reg#(Bool) doneFillingriting <- mkReg(True);
     Reg#(Bit#(13)) readIndex <- mkReg(0);
+    */
+    
+    
+    Reg#(Loadphase) writePhase <- mkReg(Request);
     Vector(256*16,Reg#(Bit#(8))) burstStorage <- newVector;
-    Reg#(Bool) blockedBurstStorage <- mkReg(False);
+    Reg#(Bool) burstStorageFilled <- mkReg(False);
+    Reg#(Bit#(9)) writeInd <- mkReg(0);
+    Reg#(Bit#(9)) fillSize <- mkReg(0);
+    Reg#(Bit#(16)) lastByteEnable <- mkReg(0);
 
-    rule requestData (validConfig && loadPhase==Request && !blockedBurstStorage);
-        if(local_addr < imageSize)
-            begin
-            Bit#(addrwidth) reqAddr = inputImageAddress + local_addr;
-            Bit#(addrwidth) _remainigPixels = local_addr - reqAddr:
-            Bit#(addrwidth) _remainingBeats = _remainigPixels >> 4;
-            Bit#(addrwidth) _pixelBeatOverhang = _remainigPixels % 16;
-            Bit#(addrwidth) _requestedBeats;
-            if(_remainingBeats < 256) 
-                _requestedBeats = _remainingBeats;
-            else
-                _requestedBeats = 256;
-            pixelBeatOverhang <= _pixelBeatOverhang;
-            requestedBeats <= truncate(_requestedBeats);
-            Bit#(8) beats = truncate(_requestedBeats-1);
-            axi4_read_data(axiDataRd,reqAddr,unpack(beats));
-            loadPhase <= Read;
-            countBeats <= 0;
-            blockedBurstStorage <= True;
-            doneWriting <= False;
-            end
-        else
-            validConfig <= False;
+    rule requestAddr (writePhase==Request && burstStorageFilled);
+        Bit#(addrwidth) reqAddr = inputImageAddress + local_addr;
+        Bit#(8) beats = truncate(fillSize-1);
+        axi4_write_addr(axiDataWr,reqAddr,unpack(beats));
+        writePhase <= Write;
+        writeInd <= 0;
     endrule
     
-    rule readData (loadPhase==Read) 
-        if(countBeats < requestedBeats) // Inside burst
+    rule writeData (writePhase==Write)
+        if(writeInd < fillSize) // Inside burst
             begin
-            Bit#(128) data <- axi4_read_response(axiDataRd);
-            local_addr <= local_addr + 16;
-            countBeats <= countBeats + 1;
-            Vector#(16,UInt#(8)) pixelVec;
+            Bit#(128) data;
             Integer pixelBitStart = 127;
-            for(Integer i=0; i<16; i=i+1) // Split bits into pixels
+            for(Integer i=0; i<16; i=i+1)
                 begin
-                pixelVec[i] = unpack(data[pixelBitStart:pixelBitStart-7]);
+                data[pixelBitStart:pixelBitStart-7] = unpack(burstStorage[writeInd+i]);
                 pixelBitStart = pixelBitStart - 8;
-                burstStorage[writeIndex+i] <= pixelVec[i];
                 end
-            if(countBeats < requestedBeats-1) // Not last burst
-                writeIndex <= writeIndex + 16;
-            else // Is last burst
+            local_addr <= local_addr + 16;
+            Bit#(16) byte_enable = 16'hFFFF;
+            Bool last = False;
+            if (writeInd==fillSize-1) // Last beat
                 begin
-                Bit#(9) pixelBeatOverhang_trunc = truncate(pixelBeatOverhang);
-                writeIndex <= writeIndex + pixelBeatOverhang_trunc;
+                byte_enable = lastByteEnable;
+                last = True;
                 end
+            axi4_write_data(axiDataWr,data,byte_enable,last);
+            writeInd <= writeInd + 16;
             end
         else // After last beat
             begin
-            loadPhase <= Request;
-            doneWriting <= False;
+            writePhase <= Request;
+            burstStorageFilled <= False;
+            fillSize <= 0;
             end
     endrule
+    
     
     Vector#(windowsize,MIMO#(16,16,MAXROWBUFFERLEN,UInt#(8))) rowBuffers <- mkMIMOBRAM({unguarded:True,bram_based:True});
     Vector#(windowsize,Reg#(UInt#(addrwidth))) rowBuffersInSize;
@@ -115,22 +106,50 @@ module mkAXIImageReader#(Integer imageWidth)(AXIImageReader#(numeric type addrwi
         end
     
     // Move data from burstStorage to row buffer
-    rule moveDataToRowBuffer (readIndex < writeIndex)
-        Bit#(13) validSpan = writeIndex - readIndex;
-        validSpan = min(validSpan,16);            
-        readIndex <= readIndex + validSpan;
-        Vector(16,UInt#(8)) enqVector = newVector;
-        for(Integer i=0; i<16; i=i+1)
-            if(i<validSpan)
-                enqVector[i] <= burstStorage[readIndex+i];
-        LUint#(16) enqCount = validSpan;
-        rowBuffers[windowsize-1].enq(enqCount,enqVector);
-        rowBuffersInSize[windowsize-1] <= rowBuffersInSize[windowsize-1] + extend(validSpan);
-        if(doneWriting && !(readIndex<writeIndex))
+    rule moveDataToBurstStorage (rowBuffers[0].deqReady && !burstStorageFilled)
+        if(fillSize<256)
             begin
-            blockedBurstStorage <= False;
-            writeIndex <= 0;
-            readIndex <= 0;
+            Bit#(9) remainSize = 256-fillSize;
+            if(rowBuffers[0].deqReadyN(16) && remainSize>=16)
+                begin
+                Vector#(16,UInt#(8)) items = rowBuffers[0].first;
+                for(Integer i=0; i<16; i=i+1)
+                    burstStorage[fillSize+i] <= items[i];
+                fillSize <= fillSize + 16;
+                rowBuffers[0].deq(16);
+                rowBuffersOutSize[0] <= rowBuffersOutSize[0] + 16;
+                end
+            else if(rowBuffers[0].deqReadyN(8) && remainSize>=8)
+                begin
+                Vector#(16,UInt#(8)) items = rowBuffers[0].first;
+                for(Integer i=0; i<8; i=i+1)
+                    burstStorage[fillSize+i] <= items[i];
+                fillSize <= fillSize + 8;
+                rowBuffers[0].deq(8);
+                rowBuffersOutSize[0] <= rowBuffersOutSize[0] + 8;
+                end
+            else if(rowBuffers[0].deqReadyN(4) && remainSize>=4)
+                begin
+                Vector#(16,UInt#(8)) items = rowBuffers[0].first;
+                for(Integer i=0; i<4; i=i+1)
+                    burstStorage[fillSize+i] <= items[i];
+                fillSize <= fillSize + 4;
+                rowBuffers[0].deq(4);
+                rowBuffersOutSize[0] <= rowBuffersOutSize[0] + 4;
+                end
+            else 
+                begin
+                Vector#(16,UInt#(8)) items = rowBuffers[0].first;
+                burstStorage[fillSize] <= items[0];
+                fillSize <= fillSize + 1;
+                rowBuffers[0].deq(1);
+                rowBuffersOutSize[0] <= rowBuffersOutSize[0] + 1;
+                end
+            end
+        else // burstStorage is full
+            begin
+                burstStorageFilled <= True;
+                writePhase <= Request;
             end
     endrule
 
@@ -138,36 +157,6 @@ module mkAXIImageReader#(Integer imageWidth)(AXIImageReader#(numeric type addrwi
     Reg#(Bit#(addrwidth) yShiftSize <-mkReg(windowsize);
     Reg#(Bit#(addrwidth) yShiftCount <-mkReg(windowsize);
     
-    // Move pixels through row buffers until they are filled by a row
-    rule yShift (doYShift);
-        Bit#(addrwidth) necessaryShift = yShiftCount - yShiftSize*resolutionX;
-        if(necessaryShift > 0)
-            begin
-            if(necessaryShift>16)
-                necessaryShift = 16;
-            Bit#(16) necessaryShift_small = truncate(necessaryShift);
-            for(Integer row=window-1; row<0; row=row-1)
-                begin
-                Vector#(16, UInt#(8)) enqNextRow = rowBuffers[row].first;
-                rowBuffers[row].deq(necessaryShift);
-                rowBuffersOutSize[row] <= rowBuffersOutSize[row] + necessaryShift_small;
-                
-                LUint#(16) enqCount = unpack(necessaryShift_small);
-                rowBuffers[row-1].enq(enqCount,enqNextRow);
-                rowBuffersInSize[row-1] <= rowBuffersInSize[row-1] + necessaryShift_small;
-                end
-            rowBuffers[0].deq(necessaryShift);
-            rowBuffersOutSize[0] <= rowBuffersOutSize[0] + necessaryShift_small;
-            yShiftCount <= yShiftCount + necessaryShift;
-            end
-        else
-            begin
-            doYShift <= False;
-            yShiftCount <= 0;
-            windowValid <= False;
-            end            
-    endrule
-
     Reg#(Bool) windowValid <- mkReg(False);
     Reg#(Bit#(addrwidth)) lastXShift <- mkReg(shiftsize);
     Reg#(Bit#(addrwidth)) lastYShift <- mkReg(shiftsize);
@@ -175,74 +164,8 @@ module mkAXIImageReader#(Integer imageWidth)(AXIImageReader#(numeric type addrwi
     Reg#(Bit#(addrwidth)) windowY0 <- mkReg(0);
     Vector#(windowsize,Vector#(windowsize,Reg#(UInt#(8)))) windowStorage = newVector;
     
-    // Move pixels to window regs until they are filled by a row
-    rule fillWindow (!windowValid & !doYShift);
-        for(Integer row=windowsize-1; row>=0; row=row-1)
-            begin
-            Vector#(16, UInt#(8)) rowBufferSet = rowBuffers[row].first;
-            rowBuffers[row].deq(windowsize);
-            for(Integer x=0; x<windowsize; x=x+1)
-                windowRegs[row][x] <= rowBufferSet[row][x];
-            end
-        windowValid <= True;
-    endrule
-    
-    method Action putWindow(Tuple3#(Bit#(addrwidth),Bit#(addrwidth),#(windowsize,Vector#(windowsize,UInt#(8)))));
-        Vector#(windowsize,Vector#(windowsize,UInt#(8))) _window = windowRegs;
-        Bit#(addrwidth) _xShiftSize = resolutionX - (windowX0+windowsize);
-        Bit#(addrwidth) _yShiftSize = resolutionY - (windowY0+windowsize);
-        if(_xShiftSize > 0) // XShift necessary
-            begin
-            if(_xShiftSize > shiftsize)
-                _xShiftSize = shiftsize;
-            for(Integer row=windowsize-1; row>=0; row=row-1)
-                begin
-                // Move row buffer content into window registers
-                Vector#(16, UInt#(8)) rowBufferSet = rowBuffers[row].first;
-                rowBuffers[row].deq(_xShiftSize);
-                rowBuffersOutSize[row] <= rowBuffersOutSize[row] + _xShiftSize;
-                for(Integer i=0; i<16; i=i+1)
-                    if(i<_xShiftSize)
-                        windowRegs[windowsize-_xShiftSize] <= rowBufferSet[i];
-                // Move window register contents into row buffer
-                if(row>0)
-                    begin
-                    Vector(16,UInt#(8)) enqVector = newVector;
-                    Bit#(16) enqSize = windowsize-_xShiftSize
-                    for(Integer i=0; i<16; i=i+1)
-                        if(i<enqSize)
-                            enqVector[i] = windowRegs[i];
-                    LUint#(16) enqCount = enqSize;
-                    rowBuffers[row-1].enq(enqCount,enqVector);
-                    rowBuffersInSize[row-1] <= rowBuffersInSize[row-1] + extend(enqSize);
-                    end
-                end
-            windowX0 <= windowX0 + _xShiftSize;
-            lastXShift <= _xShiftSize;
-            windowValid <= True;
-            end
-        else // YShift necessary
-            begin
-            if(_yShiftSize > 0) // YShift
-                begin
-                if(_yShiftSize > shiftsize)
-                    _yShiftSize = shiftsize;
-                doYShift <= True;
-                yShiftSize <= _yShiftSize;
-                yShiftCount <= 0;
-                windowX0 <= 0;
-                windowY0 <= windowY0 + _yShiftSize;
-                end
-            else // End of image
-                begin
-                windowX0 <= 0;
-                windowY0 <= 0;
-                lastXShift <= shiftsize;
-                lastYShift <= shiftsize;
-                end
-            windowValid <= False;
-            end
-        return tuple3(lastXShift,lastYShift,windowStorage);
+    method Action putWindow(Vector#(windowsize,Vector#(windowsize,Tuple2#(Bool,UInt#(8)))));
+        
     endmethod
     
     method ActionValue#(Bool) configure (Bit#(addrwidth) _imageAddress, Bit#(addrwidth) _resolutionX, Bit#(addrwidth) _resolutionY) if(!valid);

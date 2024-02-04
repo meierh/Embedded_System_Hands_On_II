@@ -4,6 +4,9 @@ import numpy as np
 import cv2 as cv
 from hexdump import hexdump
 
+def split_given_size(a, size):
+    return np.split(a, np.arange(size,len(a),size))
+
 imagePath = None
 if len(sys.argv) == 1:
     imagePath = None
@@ -14,11 +17,11 @@ else:
 
 image = None
 if(imagePath is None):
-    imageX = 10
+    imageX = 15
     imageY = 7
     pad = 1
     image = np.zeros((imageY+2*pad,imageX+2*pad),dtype=np.uint8)
-    counter = 1
+    counter = 0
     for y in range(imageY):
         for x in range(imageX):
             image[y+pad,x+pad] = counter
@@ -30,8 +33,21 @@ if(imagePath is None):
     #cv.waitKey(0)
     print('Image size: ('+str(imageY+2*pad)+','+str(imageX+2*pad)+')')
     flatImage = image.flatten()
-    with open('hexImage.hex', 'w') as f:
-        for line in flatImage:
-            f.write(f"{hex(line)}\n")
+    numChunks = int(np.ceil(len(flatImage)/16))
+    print("numChunks:",numChunks)
+    flatImageChunks = split_given_size(flatImage,16)
+    print(flatImageChunks)
+            
+    with open('ImageHandler/build/hexImage.hex', 'w') as f:
+        for line in flatImageChunks:
+            for byteInd in range(len(line)):
+                f.write(f"{line[byteInd]:02X}")
+                #if(byteInd < len(line)-1):
+                #f.write(f" ")
+            f.write(f"\n")
+
 else:
     image = cv.imread(imagePath)
+
+
+# RegFile#(UInt#(49), Bit#(128)) img_src <- mkRegFileLoad(`TEST_DIR + "/test_system.hex.in", 0, 437400);

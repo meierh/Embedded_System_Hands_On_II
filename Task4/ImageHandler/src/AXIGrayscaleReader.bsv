@@ -8,34 +8,50 @@ import AXI4_Types :: * ;
 import AXI4_Master :: * ;
 import MIMO :: *;
 import GetPut :: *;
-    
+import BRAMFIFO :: * ;
+import MIMO :: * ;
+
 typedef enum {
     Request = 2'b00,
     Read = 2'b01,
     Move = 2'b10
     } AXIBurstStoragePhase deriving (Bits,Eq);
+    
+typedef enum {
+    InitialFillRowBuffer = 3'b000,
+    InitialFillWindow = 3'b001,
+    Valid = 3'b010,
+    YShift = 3'b011,
+    End = 3'b100
+    } WindowPhase deriving (Bits,Eq);
 
 (* always_ready, always_enabled *)
 interface AXIGrayscaleReader#(numeric type addrwidth, numeric type datawidth,
                               numeric type windowsizeX, numeric type windowsizeY,
                               numeric type shiftX, numeric type shiftY,
-                              numeric type maxResolutionX, numeric type mimoInOutMax);
+                              numeric type maxResolutionX, numeric type mimoInOutMax,
+                              numeric type maxBurstLen);
     method ActionValue#(Bool) configure (Bit#(addrwidth) _imageAddress, Bit#(addrwidth) _resolutionX, Bit#(addrwidth) _resolutionY);
-    method ActionValue#(Vector#(windowsizeY,Vector#(windowsizeX,Tuple2#(Bool,UInt#(8))))) getWindow ();
+    method ActionValue#(Tuple3#(Bit#(addrwidth),Bit#(addrwidth),Vector#(windowsizeY,Vector#(windowsizeX,UInt#(8))))) getWindow ();
     interface AXI4_Master_Rd_Fab#(addrwidth,datawidth,1,0) axi4Fab;
 endinterface
 
-module mkAXIGrayscaleReader(AXIGrayscaleReader#(addrwidth,datawidth,windowsizeX,windowsizeY,shiftX,shiftY,maxResolutionX,mimoInOutMax))
+module mkAXIGrayscaleReader(AXIGrayscaleReader#(addrwidth,datawidth,windowsizeX,windowsizeY,shiftX,shiftY,maxResolutionX,mimoInOutMax,maxBurstLen))
                                 provisos(Max#(windowsizeX,shiftX,windowsizeX), // shiftX <= windowsizeX
                                          Max#(windowsizeY,shiftY,windowsizeY), // shiftY <= windowsizeY
                                          Max#(windowsizeX,maxResolutionX,maxResolutionX), // windowsizeX <= maxResolutionX
                                          Max#(addrwidth,8,addrwidth), // 8 <= addrwidth
                                          Div#(datawidth,8,pixelsPerBeat), 
-                                         Mul#(pixelsPerBeat,8,datawidth), // datawidth fixed to 128
-                                         Log#(pixelsPerBeat,4),
+                                         Mul#(pixelsPerBeat,8,datawidth), // datawidth multiple of 8
+                                         Log#(pixelsPerBeat,4), // datawidth fixed to 128
                                          Add#(a__, 8, addrwidth),
                                          Add#(b__,TLog#(TAdd#(mimoInOutMax,1)),addrwidth),
-                                         Max#(mimoInOutMax,windowsizeX,mimoInOutMax)); // windowsizeX <= mimoInOutMax
+                                         Max#(mimoInOutMax,windowsizeX,mimoInOutMax), // windowsizeX <= mimoInOutMax
+                                         Max#(mimoInOutMax,16,mimoInOutMax), // windowsizeX <= mimoInOutMax   
+                                         Add#(2, c__, maxResolutionX), //mkMIMO
+                                         Add#(e__, mimoInOutMax, maxResolutionX), //mkMIMO
+                                         Add#(d__, TMul#(8, mimoInOutMax), TMul#(8, maxResolutionX)), //mkMIMO
+                                         Add#(1, f__, TAdd#(addrwidth, TMul#(TMul#(maxBurstLen, TDiv#(datawidth, 8)), 8)))); //mkFIFO                                  
                                          
 
 // Configuration registers
@@ -54,11 +70,7 @@ module mkAXIGrayscaleReader(AXIGrayscaleReader#(addrwidth,datawidth,windowsizeX,
     
     Reg#(Bool) completeBurst <- mkRegU();
     Reg#(Bit#(TDiv#(datawidth, 8))) lastBeatValidity <- mkRegU();
-
-    Vector#(TMul#(256,TDiv#(datawidth,8)),Reg#(UInt#(8))) burstStorage = newVector;
-    Reg#(Bool) doneWriting <- mkReg(True);
-    Reg#(Bit#(addrwidth)) writeIndex <- mkReg(0);
-    Reg#(Bit#(addrwidth)) readIndex <- mkReg(0);
+    Reg#(Bit#(addrwidth)) lastBeatValidityCount <- mkRegU();
 
     rule requestData (validConfig && axiLoadPhase==Request);
         if(addrOffset < imageSize)
@@ -66,43 +78,61 @@ module mkAXIGrayscaleReader(AXIGrayscaleReader#(addrwidth,datawidth,windowsizeX,
             Bit#(addrwidth) reqAddr = inputImageAddress + addrOffset;
             Bit#(addrwidth) _remainigPixels = imageSize - addrOffset;
             Bit#(addrwidth) _remainingBeats = _remainigPixels >> 4; // Hardcoded division by 16
+            Bit#(addrwidth) _lastBeatPixelOverhang = _remainigPixels % 16;
+            if(_lastBeatPixelOverhang != 0)
+                _remainingBeats = _remainingBeats + 1;
             Bit#(TDiv#(datawidth,8)) _lastBeatValidity = 0;
             Bit#(addrwidth) _requestedBeats;
-            if(_remainingBeats < 256)
+            Bit#(addrwidth) _lastBeatValidityCount = 16;
+            if(_remainingBeats < fromInteger(valueOf(maxBurstLen)))
                 begin
                 _requestedBeats = _remainingBeats;
-                Bit#(addrwidth) _lastBeatPixelOverhang = _remainigPixels % 16;
                 if(_lastBeatPixelOverhang==0)
                     _lastBeatValidity = invert(_lastBeatValidity);
                 else
+                    begin
                     for(Integer i=0; i<valueOf(datawidth)/8; i=i+1)
                         if(fromInteger(i)<_lastBeatPixelOverhang)
                             _lastBeatValidity[i] = 1;
+                        _lastBeatValidityCount = _lastBeatPixelOverhang;
+                    end
                 completeBurst <= False;
                 end
             else
                 begin
-                _requestedBeats = 256;
+                _requestedBeats = fromInteger(valueOf(maxBurstLen));
                 completeBurst <= True;
                 _lastBeatValidity = invert(_lastBeatValidity);
                 end
             lastBeatValidity <= _lastBeatValidity;
+            lastBeatValidityCount <= _lastBeatValidityCount;
             Bit#(addrwidth) _requestedBeats_Min1 = _requestedBeats-1;
             Bit#(8) _requestedBeats_Min1_Trunc = truncate(_requestedBeats_Min1);
             axi4_read_data(axiDataRd,reqAddr,unpack(_requestedBeats_Min1_Trunc));
+            $display("_remainigPixels: %d",_remainigPixels);
+            $display("_remainingBeats: %d",_remainingBeats);
+            $display("_lastBeatPixelOverhang: %d",_lastBeatPixelOverhang);
+            $display("_lastBeatValidity: %b",_lastBeatValidity);
+            $display("_lastBeatValidityCount: %d",_lastBeatValidityCount);
+            $display("axi4_read_data from %b beats %b | %d",reqAddr,_requestedBeats_Min1_Trunc,_requestedBeats_Min1_Trunc);
+            $display("datawidth %d",valueOf(datawidth));
+            $display("datawidth/8 %d",valueOf(datawidth)/8);
             axiLoadPhase <= Read;
-            doneWriting <= False;
-            writeIndex <= 0;
             end
         else
             validConfig <= False;
     endrule
     
-    rule readData (validConfig && axiLoadPhase==Read);
+    Vector#(TMul#(maxBurstLen,TDiv#(datawidth,8)),Reg#(UInt#(8))) axiBurstRegisters;
+    for(Integer i=0; i<valueOf(maxBurstLen)*valueOf(datawidth)/8; i=i+1)
+        axiBurstRegisters[i] <- mkRegU();
+    Reg#(Bit#(addrwidth)) axiBurstRegWriteIndex <- mkReg(0);
+    //Reg#(Bit#(addrwidth)) axiBurstRegWriteLimitIndex <- mkReg(0);
+    
+    rule readData (axiLoadPhase==Read);
         let readResponse <- axiDataRd.response.get();
         Bit#(datawidth) responseData  = readResponse.data;
         Bool responseLast = readResponse.last;
-        addrOffset <= addrOffset + fromInteger(valueOf(datawidth)/8);
         
         Vector#(TDiv#(datawidth,8),UInt#(8)) pixels;
         Integer pixelBitStart = valueOf(datawidth)-1;
@@ -111,27 +141,47 @@ module mkAXIGrayscaleReader(AXIGrayscaleReader#(addrwidth,datawidth,windowsizeX,
             pixels[i] = unpack(responseData[pixelBitStart:pixelBitStart-7]);
             pixelBitStart = pixelBitStart - 8;
             end
-        
-        Bit#(addrwidth) nextWriteIndex = writeIndex + fromInteger(valueOf(datawidth)/8);
-        if(nextWriteIndex > fromInteger(256*(valueOf(datawidth)/8)))
-            nextWriteIndex = fromInteger(256*(valueOf(datawidth)/8));
-        writeIndex <= writeIndex + nextWriteIndex;
-        
+
+        Bit#(addrwidth) writeSpan = fromInteger(valueOf(datawidth)/8);
         if(!responseLast)
-            begin
             for(Integer i=0; i<valueOf(datawidth)/8; i=i+1)
-                burstStorage[writeIndex+fromInteger(i)] <= pixels[i];
-            end
+                axiBurstRegisters[axiBurstRegWriteIndex+fromInteger(i)] <= pixels[i];
         else
             begin
             for(Integer i=0; i<valueOf(datawidth)/8; i=i+1)
                 if(lastBeatValidity[i]==1)
-                    burstStorage[writeIndex+fromInteger(i)] <= pixels[i];
+                    axiBurstRegisters[axiBurstRegWriteIndex+fromInteger(i)] <= pixels[i];
             axiLoadPhase <= Move;
-            doneWriting <= True;
+            writeSpan = lastBeatValidityCount;
             end
+        axiBurstRegWriteIndex <= axiBurstRegWriteIndex + writeSpan;
+        addrOffset <= addrOffset + writeSpan;
+        $display("Write %d to %d--phase: %b Num:%d",axiBurstRegWriteIndex,axiBurstRegWriteIndex+writeSpan,axiLoadPhase,pixels[0],$time);
     endrule
     
+    Vector#(TMul#(maxBurstLen,TDiv#(datawidth,8)),Reg#(UInt#(8))) intermedBurstRegisters;
+    for(Integer i=0; i<valueOf(maxBurstLen)*valueOf(datawidth)/8; i=i+1)
+        intermedBurstRegisters[i] <- mkRegU();
+    Reg#(Bool) intermedBurstRegistersValid <- mkReg(False);
+    Reg#(Bit#(addrwidth)) intermedBurstRegistersLimitIndex <- mkReg(0);
+    Reg#(Bit#(addrwidth)) intermedBurstRegistersRead <- mkReg(0);
+    
+    rule axiBurst_to_IntermedBurst (axiLoadPhase==Move && !intermedBurstRegistersValid);
+        $display("To intermediate [0:%d]",axiBurstRegWriteIndex);
+        for(Integer i=0; i<valueOf(maxBurstLen)*(valueOf(datawidth)/8); i=i+1)
+            intermedBurstRegisters[i] <= axiBurstRegisters[i];
+        $display("axiBurstRegisters 30 %d",axiBurstRegisters[30]);
+        $display("axiBurstRegisters 50 %d",axiBurstRegisters[50]);
+        intermedBurstRegistersValid <= True;
+        intermedBurstRegistersLimitIndex <= axiBurstRegWriteIndex;
+        intermedBurstRegistersRead <= 0;
+        axiBurstRegWriteIndex <= 0;
+        axiLoadPhase <= Request;
+    endrule 
+
+    MIMOConfiguration cfg;
+    cfg.unguarded = False;
+    cfg.bram_based = True;
     Vector#(windowsizeY,MIMO#(mimoInOutMax,mimoInOutMax,maxResolutionX,UInt#(8))) rowBuffers = newVector;
     Vector#(windowsizeY,Reg#(Bit#(addrwidth))) rowBuffersInSize;
     Vector#(windowsizeY,Reg#(Bit#(addrwidth))) rowBuffersOutSize;
@@ -139,162 +189,232 @@ module mkAXIGrayscaleReader(AXIGrayscaleReader#(addrwidth,datawidth,windowsizeX,
         begin
         rowBuffersInSize[i] <- mkReg(0);
         rowBuffersOutSize[i] <- mkReg(0);
+        rowBuffers[i] <- mkMIMO(cfg);
         end
-    
-    // Move data from burstStorage to row buffer
-    (* descending_urgency = "readData, moveDataToRowBuffer" *)
-    rule moveDataToRowBuffer (readIndex < writeIndex && (axiLoadPhase == Read || axiLoadPhase == Move));
-        Bit#(addrwidth) validBufferSpan = writeIndex - readIndex;
-        Bit#(addrwidth) transferSpan = min(validBufferSpan,fromInteger(valueOf(mimoInOutMax)));            
         
-        Vector#(mimoInOutMax,UInt#(8)) enqVector = newVector;
-        for(Integer i=0; i<valueOf(mimoInOutMax); i=i+1)
-            if(fromInteger(i) < validBufferSpan)
-                enqVector[i] = burstStorage[readIndex+fromInteger(i)];
-        UInt#(addrwidth) enqCountUInt = unpack(transferSpan);
-        LUInt#(mimoInOutMax) enqCount = truncate(enqCountUInt);
-        rowBuffers[valueOf(windowsizeY)-1].enq(enqCount,enqVector);
-        
-        if(doneWriting && !(readIndex+transferSpan < writeIndex))
-            begin
-            writeIndex <= 0;
-            readIndex <= 0;
-            axiLoadPhase <= Request;
-            end
-        else
-            readIndex <= readIndex + transferSpan;
-    endrule
-
-    Reg#(Bool) doYShift <-mkReg(False);
-    Reg#(Bit#(addrwidth)) yShiftSize <- mkReg(fromInteger(valueOf(windowsizeY)));
-    Reg#(Bit#(addrwidth)) yShiftCount <- mkReg(fromInteger(valueOf(windowsizeY)));
-    Reg#(Bool) windowValid <- mkReg(False);
-    
-    // Move pixels through row buffers until they are filled by a row
-    rule yShift (doYShift);
-        Bit#(addrwidth) necessaryShift = yShiftCount - yShiftSize*resolutionX;
-        if(necessaryShift > 0)
-            begin
-            
-            Bit#(addrwidth) nextShift = necessaryShift;
-            if(necessaryShift > fromInteger(valueOf(mimoInOutMax)))
-                nextShift = fromInteger(valueOf(mimoInOutMax));
-            UInt#(addrwidth) nextShiftUInt = unpack(nextShift);
-            LUInt#(mimoInOutMax) nextShiftLUInt = truncate(nextShiftUInt);
-
-            for(Integer row=valueOf(windowsizeY)-1; row<0; row=row-1)
-                begin
-                Vector#(mimoInOutMax, UInt#(8)) enqNextRow = rowBuffers[row].first;
-                
-                rowBuffers[row].deq(nextShiftLUInt);
-                rowBuffersOutSize[row] <= rowBuffersOutSize[row] + nextShift;
-                
-                rowBuffers[row-1].enq(nextShiftLUInt,enqNextRow);
-                rowBuffersInSize[row-1] <= rowBuffersInSize[row-1] + nextShift;
-                end
-            rowBuffers[0].deq(nextShiftLUInt);
-            rowBuffersOutSize[0] <= rowBuffersOutSize[0] + nextShift;
-            yShiftCount <= yShiftCount + nextShift;
-
-            end
-        else
-            begin
-            windowValid <= False;
-            doYShift <= False;
-            yShiftCount <= 0;
-            end
-    endrule
-    
-    //Reg#(Bit#(addrwidth)) lastXShift <- mkReg(shiftsize);
-    //Reg#(Bit#(addrwidth)) lastYShift <- mkReg(shiftsize);
-    //Reg#(Bit#(addrwidth)) windowX0 <- mkReg(0);
-    //Reg#(Bit#(addrwidth)) windowY0 <- mkReg(0);
+    //Fill row buffer and window initially
     Vector#(windowsizeY,Vector#(windowsizeX,Reg#(UInt#(8)))) windowStorage = newVector;
+    for(Integer y=0; y<valueOf(windowsizeY); y=y+1)
+        for(Integer x=0; x<valueOf(windowsizeX); x=x+1)
+            windowStorage[y][x] <- mkReg(0);
+    Reg#(WindowPhase) windowState <- mkReg(InitialFillRowBuffer);    
+    Reg#(Bit#(addrwidth)) currentRow <- mkReg(0);
     
-    // Move pixels to window regs until they are filled by a row
-    rule fillWindow (!windowValid && !doYShift);
-        for(Integer row=valueOf(windowsizeY)-1; row>=0; row=row-1)
+    rule initialFillRowBuffer(windowState==InitialFillRowBuffer && intermedBurstRegistersValid);
+        if(intermedBurstRegistersRead < intermedBurstRegistersLimitIndex)
             begin
-            Vector#(mimoInOutMax, UInt#(8)) rowBufferSet = rowBuffers[row].first;
-            UInt#(addrwidth) shiftXUInt = fromInteger(valueOf(shiftX));
-            LUInt#(mimoInOutMax) shiftXLUInt = truncate(shiftXUInt);
-            rowBuffers[row].deq(shiftXLUInt);
-            for(Integer x=0; x<valueOf(windowsizeX); x=x+1)
-                windowStorage[row][x] <= rowBufferSet[x];
-            end
-        windowValid <= True;
-    endrule
-    
-    method ActionValue#(Vector#(windowsizeY,Vector#(windowsizeX,Tuple2#(Bool,UInt#(8))))) getWindow () if(windowValid);
-        Vector#(windowsizeY,Vector#(windowsizeX,UInt#(8))) _window = newVector;
-        Vector#(windowsizeY,Vector#(windowsizeX,Bool)) _windowValidity = newVector;
-        for(Integer y=0; y<valueOf(windowsizeY); y=y+1)
-            for(Integer x=0; x<valueOf(windowsizeX); x=x+1)
+            Bit#(addrwidth) transferSpan = intermedBurstRegistersLimitIndex-intermedBurstRegistersRead;
+            transferSpan = min(transferSpan,fromInteger(valueOf(mimoInOutMax)));
+            if(rowBuffersInSize[currentRow] < resolutionX) // One row buffer still to fill
                 begin
-                _windowValidity[y][x] = True;
-                _window[y][x] = windowStorage[y][x];
+                transferSpan = min(transferSpan,resolutionX-rowBuffersInSize[currentRow]);
+                Vector#(mimoInOutMax,UInt#(8)) enqVector = newVector;
+                for(Integer i=0; i<valueOf(mimoInOutMax); i=i+1)
+                    if(fromInteger(i)<transferSpan)
+                        enqVector[i] = intermedBurstRegisters[intermedBurstRegistersRead+fromInteger(i)];
+                UInt#(addrwidth) enqCountUInt = unpack(transferSpan);
+                LUInt#(mimoInOutMax) enqCount = truncate(enqCountUInt);
+                rowBuffers[currentRow].enq(enqCount,enqVector);
+                rowBuffersInSize[currentRow] <= rowBuffersInSize[currentRow] + transferSpan;
+                intermedBurstRegistersRead <= intermedBurstRegistersRead + transferSpan;
+                $display("Row %d filled by %d from: %d Num:%d",currentRow,transferSpan,rowBuffersInSize[currentRow],enqVector[0],$time);
                 end
-        /*
-        Bit#(addrwidth) _xShiftSize = resolutionX - (windowX0+windowsize);
-        Bit#(addrwidth) _yShiftSize = resolutionY - (windowY0+windowsize);
-        if(_xShiftSize > 0) // XShift necessary
-            begin
-            if(_xShiftSize > shiftsize)
-                _xShiftSize = shiftsize;
-            for(Integer row=windowsize-1; row>=0; row=row-1)
+            else // One row buffer filled
                 begin
-                // Move row buffer content into window registers
-                Vector#(16, UInt#(8)) rowBufferSet = rowBuffers[row].first;
-                rowBuffers[row].deq(_xShiftSize);
-                rowBuffersOutSize[row] <= rowBuffersOutSize[row] + _xShiftSize;
-                for(Integer i=0; i<16; i=i+1)
-                    if(i<_xShiftSize)
-                        windowRegs[windowsize-_xShiftSize] <= rowBufferSet[i];
-                // Move window register contents into row buffer
-                if(row>0)
+                Bit#(addrwidth) nextRow = currentRow + 1;
+                $display("Row %d filled",currentRow);
+                if(nextRow < fromInteger(valueOf(windowsizeY))) // Fill next row buffer
+                    currentRow <= currentRow + 1;
+                else // Filling complete
                     begin
-                    Vector#(16,UInt#(8)) enqVector = newVector;
-                    Bit#(16) enqSize = windowsize-_xShiftSize;
-                    for(Integer i=0; i<16; i=i+1)
-                        if(i<enqSize)
-                            enqVector[i] = windowRegs[i];
-                    LUInt#(16) enqCount = enqSize;
-                    rowBuffers[row-1].enq(enqCount,enqVector);
-                    rowBuffersInSize[row-1] <= rowBuffersInSize[row-1] + extend(enqSize);
+                    currentRow <= 0;
+                    windowState <= InitialFillWindow;
                     end
                 end
-            windowX0 <= windowX0 + _xShiftSize;
-            lastXShift <= _xShiftSize;
-            windowValid <= True;
             end
-        else // YShift necessary
+        else
             begin
-            if(_yShiftSize > 0) // YShift
-                begin
-                if(_yShiftSize > shiftsize)
-                    _yShiftSize = shiftsize;
-                doYShift <= True;
-                yShiftSize <= _yShiftSize;
-                yShiftCount <= 0;
-                windowX0 <= 0;
-                windowY0 <= windowY0 + _yShiftSize;
-                end
-            else // End of image
-                begin
-                windowX0 <= 0;
-                windowY0 <= 0;
-                lastXShift <= shiftsize;
-                lastYShift <= shiftsize;
-                end
-            windowValid <= False;
+            $display("Initial fill: Refill intermediate",$time);
+            intermedBurstRegistersValid <= False;
             end
-        */
+    endrule
 
-        Vector#(windowsizeY,Vector#(windowsizeX,Tuple2#(Bool,UInt#(8)))) result = newVector;
+    Reg#(Bit#(addrwidth)) validWindowSizeY <- mkReg(0);
+    Reg#(Bit#(addrwidth)) validWindowSizeX <- mkReg(0);
+    rule initialFillWindow (windowState==InitialFillWindow);
+        validWindowSizeY <= fromInteger(valueOf(windowsizeY));
+        validWindowSizeX <= fromInteger(valueOf(windowsizeX));
+        for(Integer row=0; row<valueOf(windowsizeY); row=row+1)
+            begin
+            $display("%d: Window fill",row,$time);
+        
+            Bit#(addrwidth) windowFill = fromInteger(valueOf(windowsizeX));
+            UInt#(addrwidth) windowFillUInt = unpack(windowFill);
+            LUInt#(mimoInOutMax) windowFillLUInt = truncate(windowFillUInt);
+        
+            Vector#(mimoInOutMax, UInt#(8)) enqNextRow = rowBuffers[row].first;
+            rowBuffers[row].deq(windowFillLUInt);
+            rowBuffersOutSize[row] <= rowBuffersOutSize[row] + windowFill;
+            for(Integer col=0; col<valueOf(windowsizeX); col=col+1)
+                begin
+                windowStorage[row][col] <= enqNextRow[col];
+                end
+            end
+        windowState <= Valid;
+    endrule 
+    
+    // Move data from burstStorage to row buffer
+    rule axiBurstRegister_to_rowBuffer (windowState!=InitialFillRowBuffer &&
+                                        windowState!=InitialFillWindow &&
+                                        intermedBurstRegistersValid);
+        $display("To row buffer %d < %d",intermedBurstRegistersRead,intermedBurstRegistersLimitIndex);
+        if(intermedBurstRegistersRead < intermedBurstRegistersLimitIndex)
+            begin
+            Bit#(addrwidth) transferSpan = intermedBurstRegistersLimitIndex-intermedBurstRegistersRead;
+            transferSpan = min(transferSpan,fromInteger(valueOf(mimoInOutMax)));
+            
+            Vector#(mimoInOutMax,UInt#(8)) enqVector = newVector;
+            for(Integer i=0; i<valueOf(mimoInOutMax); i=i+1)
+                if(fromInteger(i)<transferSpan)
+                    enqVector[i] = intermedBurstRegisters[intermedBurstRegistersRead+fromInteger(i)];
+            UInt#(addrwidth) enqCountUInt = unpack(transferSpan);
+            LUInt#(mimoInOutMax) enqCount = truncate(enqCountUInt);
+            rowBuffers[valueOf(windowsizeY)-1].enq(enqCount,enqVector);
+            rowBuffersInSize[valueOf(windowsizeY)-1] <= rowBuffersInSize[valueOf(windowsizeY)-1] + 1;
+            intermedBurstRegistersRead <= intermedBurstRegistersRead + transferSpan;
+            //$display("Read to row buffer from %d to %d",intermedBurstRegistersRead,intermedBurstRegistersRead+transferSpan,$time);
+            end
+        else
+            begin
+            intermedBurstRegistersValid <= False;
+            end
+    endrule
+
+    function Bool validEnqShift(Bit#(addrwidth) enqSpan)
+        UInt#(addrwidth) enqSpanUInt = unpack(enqSpan);
+        LUInt#(mimoInOutMax) enqSpanLUInt = truncate(enqSpanUInt);
+        Vector#(valueOf(windowsizeY), Bool) valEnq = newVector;
+        for(Integer row=0; row<valueOf(windowsizeY)-1; row=row+1)
+            valEnq[row] = rowBuffers[row].deqReadyN(enqSpanLUInt);
+        return and(valEnq);
+    endfunction
+    
+    function Bool validDeqShift(Bit#(addrwidth) deqSpan)
+        UInt#(addrwidth) deqSpanUInt = unpack(deqSpan);
+        LUInt#(mimoInOutMax) deqSpanLUInt = truncate(deqSpanUInt);
+        Vector#(valueOf(windowsizeY), Bool) valDeq = newVector;
+        for(Integer row=0; row<valueOf(windowsizeY); row=row+1)
+            valDeq[row] = rowBuffers[row].enqReadyN(enqSpanLUInt);
+        return and(valDeq);
+    endfunction
+    
+    Reg#(Bit#(addrwidth)) shiftCounter <- mkReg(0);
+    rule shiftYRowBuffer(windowState==YShift);
+        $display("Y Shift");
+        if(shiftCounter < resolutionX*fromInteger(valueOf(shiftY)))
+            begin
+            Bit#(addrwidth) transferSpan = resolutionX*fromInteger(valueOf(shiftY))-shiftCounter;
+            transferSpan = min(transferSpan,fromInteger(valueOf(mimoInOutMax)));
+            transferSpan = min(transferSpan,resolutionX);
+            Vector#(2, Bool) transferAble = newVector;
+            
+            
+            $display("Shift by: %d of %d * %d = %d",transferSpan,resolutionX,fromInteger(valueOf(shiftY)),resolutionX*fromInteger(valueOf(shiftY)));
+            Bool deqEnqValid = False;
+            
+            UInt#(addrwidth) transferSpanUInt = unpack(transferSpan);
+            LUInt#(mimoInOutMax) transferSpanLUInt = truncate(transferSpanUInt);
+            shiftCounter <= shiftCounter + transferSpan;
+            for(Integer row=0; row<valueOf(windowsizeX)-1; row=row+1)
+                begin
+                //$display(" rowBuffers[%d].deqReadyN(transferSpanLUInt): %b",row,rowBuffers[row].deqReadyN(transferSpanLUInt));
+                //$display(" rowBuffers[%d].deqReadyN(transferSpanLUInt): %b",row,rowBuffers[row].deqReadyN(transferSpanLUInt/2));
+                //$display(" rowBuffers[%d].deqReady: %b",row,rowBuffers[row].deqReady);
+                Vector#(mimoInOutMax,UInt#(8)) deqVector = rowBuffers[row].first;
+                $display("row: %d -- %d",row,deqVector[0]);
+                rowBuffers[row].deq(transferSpanLUInt);
+                rowBuffersOutSize[row] <= rowBuffersOutSize[row] + transferSpan;
+                if(row-1 >= 0)
+                    begin
+                    $display("rowBuffers[%d].enqReadyN(transferSpanLUInt): %b",row-1,rowBuffers[row-1].enqReadyN(transferSpanLUInt));
+                    //rowBuffers[row-1].enq(transferSpanLUInt,deqVector);
+                    rowBuffersInSize[row-1] <= rowBuffersInSize[row-1] + transferSpan;
+                    end
+                end
+            end
+        else
+            begin
+            windowState <= InitialFillWindow;
+            shiftCounter <= 0;
+            end
+    endrule
+    
+    Reg#(Bit#(addrwidth)) windowX0 <- mkReg(0);
+    Reg#(Bit#(addrwidth)) windowY0 <- mkReg(0);
+    Reg#(Bool) lastRows <- mkReg(False);
+    
+    method ActionValue#(Tuple3#(Bit#(addrwidth),Bit#(addrwidth),Vector#(windowsizeY,Vector#(windowsizeX,UInt#(8))))) getWindow () if(windowState==Valid);
+        Vector#(windowsizeY,Vector#(windowsizeX,UInt#(8))) _window = newVector;
         for(Integer y=0; y<valueOf(windowsizeY); y=y+1)
             for(Integer x=0; x<valueOf(windowsizeX); x=x+1)
-                result[y][x] = tuple2(_windowValidity[y][x],_window[y][x]);
-        return result;
+                _window[y][x] = windowStorage[y][x];
+        
+        Bit#(addrwidth) nextWindowX0 = windowX0 + fromInteger(valueOf(shiftX));
+        Bit#(addrwidth) necessaryResolutionX = nextWindowX0 + fromInteger(valueOf(windowsizeX));        
+        if(windowX0+fromInteger(valueOf(windowsizeX)) <= resolutionX) // Shift in x direction
+            begin
+            
+            // Move back into mimo
+            for(Integer row=1; row<valueOf(windowsizeY); row=row+1)
+                begin
+                Vector#(mimoInOutMax,UInt#(8)) enqVector = newVector;
+                for(Integer x=0; x<valueOf(shiftX); x=x+1)
+                    enqVector[x] = windowStorage[row][x];
+                UInt#(addrwidth) enqCountUInt = fromInteger(valueOf(shiftX));
+                LUInt#(mimoInOutMax) enqCount = truncate(enqCountUInt);
+                rowBuffers[row-1].enq(enqCount,enqVector);
+                rowBuffersInSize[row] <= rowBuffersInSize[row] + pack(enqCountUInt);
+                end
+            
+            // Move inside window storage
+            for(Integer row=0; row<valueOf(windowsizeY); row=row+1)
+                for(Integer x=0; x<valueOf(windowsizeX)-valueOf(shiftX); x=x+1)
+                    windowStorage[row][x] <= windowStorage[row][valueOf(shiftX)+x];
+            
+            //Insert into window from mimo
+            Bit#(addrwidth) remainingPixelsInRow = resolutionX-windowX0-fromInteger(valueOf(windowsizeX));
+            Bit#(addrwidth) extractMIMOSpan = min(fromInteger(valueOf(shiftX)),remainingPixelsInRow);
+            $display("remainingPixelsInRow:%d / extractMIMOSpan:%d / shiftX:%d",remainingPixelsInRow,extractMIMOSpan,valueOf(shiftX));
+            UInt#(addrwidth) extractMIMOSpanUInt = unpack(extractMIMOSpan);
+            LUInt#(mimoInOutMax) extractMIMOSpanLUInt = truncate(extractMIMOSpanUInt);
+            for(Integer row=0; row<valueOf(windowsizeY); row=row+1)
+                begin                
+                Vector#(mimoInOutMax, UInt#(8)) extractRow = rowBuffers[row].first;
+                rowBuffers[row].deq(extractMIMOSpanLUInt);
+                rowBuffersOutSize[row] <= rowBuffersOutSize[row] + extractMIMOSpan;
+                for(Integer x=0; x<valueOf(shiftX); x=x+1)
+                    windowStorage[row][fromInteger(valueOf(windowsizeX))-fromInteger(valueOf(shiftX))+fromInteger(x)] <= extractRow[x];
+                end
+            $display("X0:%d - nextX0:%d -- Step X  nesResX %d <= resX%d",windowX0,nextWindowX0,necessaryResolutionX,resolutionX);
+            $display("extractMIMOSpan:%d / windowsizeX:%d / shiftX:%d",extractMIMOSpan,valueOf(windowsizeX),valueOf(shiftX));
+            windowX0 <= nextWindowX0;
+            validWindowSizeX <= extractMIMOSpan+fromInteger(valueOf(windowsizeX)-valueOf(shiftX));
+            end
+        else
+            begin
+            if(lastRows)
+                windowState <= End;
+            else
+                begin
+                $display("Set to YShift");
+                windowState <= YShift;
+                windowY0 <= windowY0+fromInteger(valueOf(shiftY));
+                if(windowY0+fromInteger(valueOf(windowsizeY)) >= resolutionY)
+                    lastRows <= True;
+                end
+            $display("Y0:%d - nextY0:%d -- Step Y %d",windowY0,windowY0+fromInteger(valueOf(shiftY)),resolutionY);
+            end
+        return tuple3(validWindowSizeX,validWindowSizeY,_window);
     endmethod
     
     method ActionValue#(Bool) configure (Bit#(addrwidth) _imageAddress, Bit#(addrwidth) _resolutionX, Bit#(addrwidth) _resolutionY) if(!validConfig);
@@ -310,13 +430,15 @@ module mkAXIGrayscaleReader(AXIGrayscaleReader#(addrwidth,datawidth,windowsizeX,
         addrOffset <= 0;
         //windowRegsFilled <= False;
         Bool valid = True;
-        /*
-        if(shiftsize<=16 && windowsize<=16 && windowsize<=resolutionX && windowsize<=resolutionY && shiftsize<=windowsize)
-            valid = True;
-        else
-            valid = False;
-        */
+
         validConfig <= valid;
+        /*
+        for(Integer i=0; i<valueOf(windowsizeY); i=i+1)
+            begin
+            initialFillCount[i] <=  resolutionX*(fromInteger(valueOf(i)+1));
+            end
+        */
+        
         return valid;
     endmethod
     

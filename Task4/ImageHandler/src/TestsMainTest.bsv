@@ -13,63 +13,112 @@ package TestsMainTest;
 
     (* synthesize *)
     module [Module] mkTestsMainTest(TestHelper::TestHandler);
-
-        AXIGrayscaleReader#(64,128,6,6,4,4,2000,16) read <- mkAXIGrayscaleReader();
-        AXIGrayscaleWriter#(64,128,4,4,4,4,2000) write <- mkAXIGrayscaleWriter(16);
         
-        AXI4_Slave_Rd#(64,128,1,0) slaveRead <- mkAXI4_Slave_Rd(1,1);
-        AXI4_Slave_Wr#(64,128,1,0) slaveWrite <- mkAXI4_Slave_Wr(1,1,1);
-        mkConnection(slaveRead.fab, read.axi4Fab);
-        mkConnection(slaveWrite.fab, write.axi4Fab);
+        AXIGrayscaleReader#(32,128,6,6,4,4,2000,16,16) read <- mkAXIGrayscaleReader();
+        AXIGrayscaleWriter#(32,128,4,4,4,4,2000) write <- mkAXIGrayscaleWriter(16);
     
-        /*
         BRAM_Configure cfg = defaultValue;
-        cfg.memorySize = 108;
+        cfg.memorySize = 2048;
         cfg.loadFormat = tagged Hex "hexImage.hex";
-        BRAM1PortBE #(Bit#(8), Bit#(8), TDiv#(8,8)) bram <- mkBRAM1ServerBE(cfg);
-        BlueAXIBRAM#(64,8,1) memory <- mkBlueAXIBRAM(bram.portA);
+        BRAM1PortBE #(Bit#(32), Bit#(128), TDiv#(128,8)) bram <- mkBRAM1ServerBE(cfg);
+        BlueAXIBRAM#(32,128,1) memory <- mkBlueAXIBRAM(bram.portA);
         mkConnection(memory.rd, read.axi4Fab);
         mkConnection(memory.wr, write.axi4Fab);
-        */
-        
-        /*
-        Vector#(9,Vector#(12,Bit#(8))) image;
-        Integer count = 1;
-        for(Integer y=0;y<9;y=y+1)
-            for(Integer x=0;x<12;x=x+1)
-                begin
-                if(x==0) image[y][x] = 0;
-                else if(x==11) image[y][x] = 0;
-                else if(y==0) image[y][x] = 0;
-                else if(y==8) image[y][x] = 0;
-                else 
-                    begin
-                    image[y][x] = fromInteger(count);
-                    count = count + 1;
-                    end
-                end
-                
-        Vector#(108,Bit#(8)) memory;
-        count = 0;
-        for(Integer y=0;y<9;y=y+1)
-            for(Integer x=0;x<12;x=x+1)
-                begin
-                memory[count] = image[y][x];
-                count = count + 1;
-                end
-        
-        
-        rule read
-            slaveRead.request.get()
-        endrule
-        */
         
         Stmt s = {
             seq
-                $display("Configure hexImage!");
+                $display("Hex Image read!");
                 action
-                    let valid <- read.configure(0,12,9);
+                    let valid <- read.configure(0,17,9);
                 endaction
+                action
+                    let _window <- read.getWindow();
+                    $display("Valid x %d -- valid y %d",tpl_1(_window),tpl_2(_window),$time);
+                    for(Integer y=0; y<6; y=y+1)
+                        begin
+                        for(Integer x=0; x<6; x=x+1)
+                            $write("%d ",tpl_3(_window)[y][x]);
+                        $display(" ");
+                        end
+                    $display("----------------------------------------------------------------");
+                endaction
+                action
+                    let _window <- read.getWindow();
+                    $display("Valid x %d -- valid y %d",tpl_1(_window),tpl_2(_window),$time);
+                    for(Integer y=0; y<6; y=y+1)
+                        begin
+                        for(Integer x=0; x<6; x=x+1)
+                            $write("%d ",tpl_3(_window)[y][x]);
+                        $display(" ");
+                        end
+                    $display("----------------------------------------------------------------");
+                endaction
+                action
+                    let _window <- read.getWindow();
+                    $display("Valid x %d -- valid y %d",tpl_1(_window),tpl_2(_window),$time);
+                    for(Integer y=0; y<6; y=y+1)
+                        begin
+                        for(Integer x=0; x<6; x=x+1)
+                            $write("%d ",tpl_3(_window)[y][x]);
+                        $display(" ");
+                        end
+                    $display("----------------------------------------------------------------");
+                endaction
+                action
+                    let _window <- read.getWindow();
+                    $display("Valid x %d -- valid y %d",tpl_1(_window),tpl_2(_window),$time);
+                    for(Integer y=0; y<6; y=y+1)
+                        begin
+                        for(Integer x=0; x<6; x=x+1)
+                            $write("%d ",tpl_3(_window)[y][x]);
+                        $display(" ");
+                        end
+                    $display("----------------------------------------------------------------");
+                endaction
+                action
+                    let _window <- read.getWindow();
+                    $display("Valid x %d -- valid y %d",tpl_1(_window),tpl_2(_window),$time);
+                    for(Integer y=0; y<6; y=y+1)
+                        begin
+                        for(Integer x=0; x<6; x=x+1)
+                            $write("%d ",tpl_3(_window)[y][x]);
+                        $display(" ");
+                        end
+                    $display("----------------------------------------------------------------");
+                endaction
+                action
+                    let _window <- read.getWindow();
+                    $display("Valid x %d -- valid y %d",tpl_1(_window),tpl_2(_window),$time);
+                    for(Integer y=0; y<6; y=y+1)
+                        begin
+                        for(Integer x=0; x<6; x=x+1)
+                            $write("%d ",tpl_3(_window)[y][x]);
+                        $display(" ");
+                        end
+                    $display("----------------------------------------------------------------");
+                endaction
+                action
+                    let _window <- read.getWindow();
+                    $display("Valid x %d -- valid y %d",tpl_1(_window),tpl_2(_window),$time);
+                    for(Integer y=0; y<6; y=y+1)
+                        begin
+                        for(Integer x=0; x<6; x=x+1)
+                            $write("%d ",tpl_3(_window)[y][x]);
+                        $display(" ");
+                        end
+                endaction
+                
+                /*
+                $display("Put request bram hexImage!");
+                action
+                    bram.portA.request.put(BRAMRequestBE {writeen: 0, responseOnWrite: False, address: 0, datain: 0});
+                endaction
+                action
+                    let data <- bram.portA.response.get();
+                    $display("Data: %b",data);
+                endaction
+                */
+                delay(1000);
             endseq
         };
         FSM testFSM <- mkFSM(s);

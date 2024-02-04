@@ -191,8 +191,9 @@ module mkSobelFilter(SobelFilter);
     Reg#(Bit#(AXICONFIGDATAWIDTH)) _resolutionY <- mkReg(0);
     Reg#(FilterType) _kernelSize <- mkReg(Sobel3);
     Reg#(FilterStatus) _filteringStatus <- mkReg(Idle);
-    
     Reg#(Computephase) computePhase <- mkReg(LoadAndFilter);
+    
+    
     
     // Main Computation Filtering Loop
     Reg#(COORD) windowCoord <- mkReg(COORD{x:0,y:0});    
