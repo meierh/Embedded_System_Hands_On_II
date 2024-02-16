@@ -1,10 +1,10 @@
 ###
 # DO NOT CHANGE
 ###
-TOP_MODULE=mkImageHandler
+TOP_MODULE=mkSobelOperator
 TESTBENCH_MODULE=mkTestbench
 IGNORE_MODULES=mkTestbench mkTestsMainTest
-MAIN_MODULE=ImageHandler
+MAIN_MODULE=SobelOperator
 TESTBENCH_FILE=src/Testbench.bsv
 
 
@@ -19,7 +19,7 @@ EXTRA_BSV_LIBS:=
 EXTRA_LIBRARIES:=
 RUN_FLAGS:=
 
-PROJECT_NAME=ImageHandler
+PROJECT_NAME=SobelOperator
 
 ifeq ($(RUN_TEST),)
 RUN_TEST=TestsMainTest
@@ -28,9 +28,6 @@ endif
 # Default flags
 EXTRA_FLAGS=-D "RUN_TEST=$(RUN_TEST)" -D "TESTNAME=mk$(RUN_TEST)"
 EXTRA_FLAGS+=-show-schedule -keep-fires -D "BSV_TIMESCALE=1ns/1ps"
-EXTRA_FLAGS+= +RTS -Ksize -RTS
-# for loop unrolling
-#EXTRA_FLAGS+=-steps-max-intervals 2000000
 
 ###
 # User configuration

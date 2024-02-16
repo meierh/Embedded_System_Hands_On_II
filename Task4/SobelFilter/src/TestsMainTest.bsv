@@ -26,105 +26,34 @@ package TestsMainTest;
     
     (* synthesize *)
     module [Module] mkTestsMainTest(TestHelper::TestHandler);
-
-        SobelFilter testedModule <- mkSobelFilter();
+    
+        AXIGrayscaleReader#(32,128,6,3,4,2000,16,16) read <- mkAXIGrayscaleReader();
+        AXIGrayscaleWriter#(32,128,4,4,4,4,2000) write <- mkAXIGrayscaleWriter(16);
+    
+        BRAM_Configure cfg = defaultValue;
+        cfg.memorySize = 2048;
+        cfg.loadFormat = tagged Hex "hexImage.hex";
+        BRAM1PortBE #(Bit#(32), Bit#(128), TDiv#(128,8)) bram <- mkBRAM1ServerBE(cfg);
+        BlueAXIBRAM#(32,128,1) memory <- mkBlueAXIBRAM(bram.portA);
+        mkConnection(memory.rd, read.axi4Fab);
+        mkConnection(memory.wr, write.axi4Fab);
         
-        AXI4_Lite_Master_Wr#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) masterWrite <- mkAXI4_Lite_Master_Wr(1);
-        mkConnection(masterWrite.fab, testedModule.axiC_wr);
-        AXI4_Lite_Master_Rd#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) masterRead <- mkAXI4_Lite_Master_Rd(1);
-        mkConnection(masterRead.fab, testedModule.axiC_rd);
-        
-        AXI4_Slave_Wr#(AXIIMAGEADDRWIDTH,AXIIMAGEDATAWIDTH,AXIIMAGEIDWIDTH,AXIIMAGEUSERWIDTH) slaveWrite <- mkAXI4_Slave_Wr(1,1,1);
-        mkConnection(slaveWrite.fab, testedModule.axiD_wr);
-        AXI4_Slave_Rd#(AXIIMAGEADDRWIDTH,AXIIMAGEDATAWIDTH,AXIIMAGEIDWIDTH,AXIIMAGEUSERWIDTH) slaveRead <- mkAXI4_Slave_Rd(1,1);
-        mkConnection(slaveRead.fab, testedModule.axiD_rd);
-
         Stmt s = {
             seq
+                $display("Hex Image read!");
                 action
-                    let reqC = AXI4_Lite_Read_Rq_Pkg {addr:0, prot:UNPRIV_SECURE_DATA};
-                    masterRead.request.put(reqC);
+                    let valid <- read.configure(0,17,9);
                 endaction
                 action
-                    let respC <- masterRead.response.get();
-                    Bit#(64) result = unpack(respC.data);
-                    $display("RSTATUS     %h", result);
-                endaction
-
-                action
-                    Bit#(64) addrIn = 256;
-                    let req = AXI4_Lite_Write_Rq_Pkg {addr:8, data:addrIn, strb:8'b11111111, prot:UNPRIV_SECURE_DATA};
-                    masterWrite.request.put(req);
-                    $display("WIMAGEADDR  %h",addrIn);
-                endaction
-                action
-                    AXI4_Lite_Write_Rs_Pkg resp <- masterWrite.response.get();
-                    $display("W Resp      %b",resp.resp);
-                endaction
-                
-                action
-                    Bit#(64) addrOut = 4096;
-                    let req = AXI4_Lite_Write_Rq_Pkg {addr:16, data:addrOut, strb:8'b11111111, prot:UNPRIV_SECURE_DATA};
-                    masterWrite.request.put(req);
-                    $display("WOUTPUTADDR %h",addrOut);
-                endaction
-                action
-                    AXI4_Lite_Write_Rs_Pkg resp <- masterWrite.response.get();
-                    $display("W Resp      %b",resp.resp);
-                endaction
-                
-                action
-                    Bit#(64) addrOut = 1920;
-                    let req = AXI4_Lite_Write_Rq_Pkg {addr:24, data:addrOut, strb:8'b11111111, prot:UNPRIV_SECURE_DATA};
-                    masterWrite.request.put(req);
-                    $display("WRESX       %h",addrOut);
-                endaction
-                action
-                    AXI4_Lite_Write_Rs_Pkg resp <- masterWrite.response.get();
-                    $display("W Resp      %b",resp.resp);
-                endaction
-                
-                action
-                    Bit#(64) addrOut = 1080;
-                    let req = AXI4_Lite_Write_Rq_Pkg {addr:32, data:addrOut, strb:8'b11111111, prot:UNPRIV_SECURE_DATA};
-                    masterWrite.request.put(req);
-                    $display("WRESY       %h",addrOut);
-                endaction
-                action
-                    AXI4_Lite_Write_Rs_Pkg resp <- masterWrite.response.get();
-                    $display("W Resp      %b",resp.resp);
-                endaction
-                
-                action
-                    Bit#(64) addrOut = 6;
-                    let req = AXI4_Lite_Write_Rq_Pkg {addr:40, data:addrOut, strb:8'b11111111, prot:UNPRIV_SECURE_DATA};
-                    masterWrite.request.put(req);
-                    $display("WKERNELS    %h",addrOut);
-                endaction
-                action
-                    AXI4_Lite_Write_Rs_Pkg resp <- masterWrite.response.get();
-                    $display("W Resp      %b",resp.resp);
-                endaction
-                
-                action
-                    //Bit#(64) addrOut = 9;
-                    let req = AXI4_Lite_Write_Rq_Pkg {addr:48, data:0, strb:8'b11111111, prot:UNPRIV_SECURE_DATA};
-                    masterWrite.request.put(req);
-                    $display("WEXEC");
-                endaction
-                action
-                    AXI4_Lite_Write_Rs_Pkg resp <- masterWrite.response.get();
-                    $display("W Resp      %b",resp.resp);
-                endaction
-                
-                action
-                    let reqC = AXI4_Lite_Read_Rq_Pkg {addr:0, prot:UNPRIV_SECURE_DATA};
-                    masterRead.request.put(reqC);
-                endaction
-                action
-                    let respC <- masterRead.response.get();
-                    Bit#(64) result = unpack(respC.data);
-                    $display("RSTATUS     %h", result);
+                    let _window <- read.getWindow();
+                    $display("Valid x %d -- valid y %d",tpl_1(_window),tpl_2(_window),$time);
+                    for(Integer y=0; y<3; y=y+1)
+                        begin
+                        for(Integer x=0; x<6; x=x+1)
+                            $write("%d ",tpl_3(_window)[y][x]);
+                        $display(" ");
+                        end
+                    $display("----------------------------------------------------------------");
                 endaction
             endseq
         };

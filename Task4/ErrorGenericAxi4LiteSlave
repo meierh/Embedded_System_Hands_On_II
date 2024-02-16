@@ -1,0 +1,62 @@
+Code:
+
+Stmt s = {
+    seq
+        action
+            let reqC = AXI4_Lite_Read_Rq_Pkg {addr:0, prot:UNPRIV_SECURE_DATA};
+            masterRead.request.put(reqC);
+        endaction
+        action
+            let respC <- masterRead.response.get();
+            Bit#(64) result = unpack(respC.data);
+            $display("RSTATUS     %h", result);
+        endaction
+
+        action
+            Bit#(64) addrIn = 256;
+            let req = AXI4_Lite_Write_Rq_Pkg {addr:8, data:addrIn, strb:8'b11111111, prot:UNPRIV_SECURE_DATA};
+            masterWrite.request.put(req);
+            $display("WIMAGEADDR  %h",addrIn);
+        endaction
+        action
+            AXI4_Lite_Write_Rs_Pkg resp <- masterWrite.response.get();
+            $display("W Resp      %b",resp.resp);
+        endaction
+        
+        action
+            Bit#(64) addrOut = 4096;
+            let req = AXI4_Lite_Write_Rq_Pkg {addr:16, data:addrOut, strb:8'b11111111, prot:UNPRIV_SECURE_DATA};
+            masterWrite.request.put(req);
+            $display("WOUTPUTADDR %h",addrOut);
+        endaction
+        action
+            AXI4_Lite_Write_Rs_Pkg resp <- masterWrite.response.get();
+            $display("W Resp      %b",resp.resp);
+        endaction
+        
+        action
+            let reqC = AXI4_Lite_Read_Rq_Pkg {addr:0, prot:UNPRIV_SECURE_DATA};
+            masterRead.request.put(reqC);
+        endaction
+        action
+            let respC <- masterRead.response.get();
+            Bit#(64) result = unpack(respC.data);
+            $display("RSTATUS     %h", result);
+        endaction
+    endseq
+};
+
+Output:
+RSTATUS     0000000000000000
+WIMAGEADDR  0000000000000100
+W Resp      00
+WOUTPUTADDR 0000000000001000
+Error: "/home/helge/Uni/Semester_21/ESHO2/HelgeMeier/Task4/SobelFilter/libraries/BlueAXI/src/GenericAxi4LiteSlave.bsv", line 345, column 18: (R0002)
+  Conflict-free rules
+  RL_testedModule_axiConfigSlave_1_axiWriteSpecialIsHandled_5 and
+  RL_testedModule_axiConfigSlave_1_axiWriteSpecialIsHandled_1 called
+  conflicting methods wset and wset of module instance
+  testedModule_axiConfigSlave_writeIsHandled.
+
+W Resp      00
+RSTATUS     0000000000000000

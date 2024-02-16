@@ -6,41 +6,24 @@ import FIFO :: * ;
 import BlueAXI :: * ;
 import AXI4_Types :: * ;
 import SobelTypes :: * ;
+import AXIGrayscaleReader :: *;
+import AXIGrayscaleWriter :: *;
 import SobelOperator :: * ;
 
-typedef 8 AXICONFIGADDRWIDTH;
-typedef 64 AXICONFIGDATAWIDTH;
-
-typedef 180 MAXIMAGEWIDTH;
-typedef 1 SIMULTROWS;
-
-typedef 10 SLIDINGWINDOWX;
-typedef 10 SLIDINGWINDOWY;
-typedef 16 SLIDINGWINDOWXPAD;
-typedef 16 SLIDINGWINDOWYPAD;
-
-typedef 4 MAXPAD;
-
-// must be equal to SIMULTROWS+maxPad(8)
-//typedef 9 IMAGEDATAHEIGHT;
-// must be equal to  MAXIMAGEWIDTH+maxPad(8)
-//typedef 188 IMAGEDATAWIDTH;
 
 // must be equal to AXICONFIGDATAWIDTH
-typedef 64 AXIIMAGEADDRWIDTH;
-typedef 8 AXIIMAGEDATAWIDTH;
-typedef 1 AXIIMAGEIDWIDTH;
-typedef 1 AXIIMAGEUSERWIDTH;
+typedef 8 AXICONFIGADDRWIDTH;
+typedef 64 AXICONFIGDATAWIDTH;
+typedef 128 AXIIMAGEDATAWIDTH;
+
+typedef 22 WINDOWSIZEX;
+typedef 7 WINDOWSIZEY;
+typedef 16 SHIFTX;
+typedef 3 PAD;
+
+typedef 2000 MAXRESOLUTIONX;
 
 typedef 256 MAXAXIBEATLEN;
-
-typedef 2 FIFODEPTH;
-
-typedef struct {Bit#(AXICONFIGDATAWIDTH) x; Bit#(AXICONFIGDATAWIDTH) y;} COORD deriving (Bits);
-typedef Vector#(SLIDINGWINDOWYPAD,Vector#(SLIDINGWINDOWXPAD,UInt#(8))) WINDOWDATA_PAD;
-typedef struct{COORD x0y0; WINDOWDATA_PAD data;} WINDOW_IN deriving (Bits);
-typedef Vector#(SLIDINGWINDOWY,Vector#(SLIDINGWINDOWX,UInt#(8))) WINDOWDATA;
-typedef struct{COORD x0y0; WINDOWDATA data;} WINDOW_OUT deriving (Bits);
 
 //(* always_ready, always_enabled *)
 interface SobelFilter;
@@ -48,10 +31,8 @@ interface SobelFilter;
     (*prefix = "AXI_Config"*) interface AXI4_Lite_Slave_Rd_Fab#(AXICONFIGADDRWIDTH, AXICONFIGDATAWIDTH) axiC_rd;
     (*prefix = "AXI_Config"*) interface AXI4_Lite_Slave_Wr_Fab#(AXICONFIGADDRWIDTH, AXICONFIGDATAWIDTH) axiC_wr;
     
-    (*prefix = "AXI_Image"*) interface AXI4_Master_Rd_Fab#(AXIIMAGEADDRWIDTH,AXIIMAGEDATAWIDTH,AXIIMAGEIDWIDTH,
-                                                           AXIIMAGEUSERWIDTH) axiD_rd;
-    (*prefix = "AXI_Image"*) interface AXI4_Master_Wr_Fab#(AXIIMAGEADDRWIDTH,AXIIMAGEDATAWIDTH,AXIIMAGEIDWIDTH,
-                                                           AXIIMAGEUSERWIDTH) axiD_wr;
+    (*prefix = "AXI_Image"*) interface AXI4_Master_Rd_Fab#(AXICONFIGDATAWIDTH,AXIIMAGEDATAWIDTH,1,0) axiD_rd;
+    (*prefix = "AXI_Image"*) interface AXI4_Master_Wr_Fab#(AXICONFIGDATAWIDTH,AXIIMAGEDATAWIDTH,1,0) axiD_wr;
 endinterface
 
 module mkSobelFilter(SobelFilter);
@@ -190,200 +171,15 @@ module mkSobelFilter(SobelFilter);
     Reg#(Bit#(AXICONFIGDATAWIDTH)) _resolutionX <- mkReg(0);
     Reg#(Bit#(AXICONFIGDATAWIDTH)) _resolutionY <- mkReg(0);
     Reg#(FilterType) _kernelSize <- mkReg(Sobel3);
+    Vector#(SHIFTX,SobelOperator) filterCores = newVector;
+    for(Integer x=0; x<valueOf(SHIFTX); x=x+1)
+        filterCores[x] <- mkSobelPassthrough();
     Reg#(FilterStatus) _filteringStatus <- mkReg(Idle);
     Reg#(Computephase) computePhase <- mkReg(LoadAndFilter);
     
+    AXIGrayscaleReader#(AXICONFIGDATAWIDTH,AXIIMAGEDATAWIDTH,WINDOWSIZEX,WINDOWSIZEY,SHIFTX,MAXRESOLUTIONX,WINDOWSIZEX,MAXAXIBEATLEN) imageReader <- mkAXIGrayscaleReader();
     
-    
-    // Main Computation Filtering Loop
-    Reg#(COORD) windowCoord <- mkReg(COORD{x:0,y:0});    
-    
-    // Read data from AXI connect
-    AXI4_Master_Rd#(AXIIMAGEADDRWIDTH,AXIIMAGEDATAWIDTH,AXIIMAGEIDWIDTH,AXIIMAGEUSERWIDTH) axiDataRd <- mkAXI4_Master_Rd(1,1,False);
-    
-    Reg#(Bool) axi_readImage_Done <- mkReg(True);
-    Reg#(WINDOW_IN) axi_readImage <- mkRegU();
-    
-    FIFO#(WINDOW_IN) imageInFIFO <- mkSizedFIFO(valueOf(FIFODEPTH));
-
-    Reg#(Bit#(AXICONFIGDATAWIDTH)) localX_load <- mkReg(0);
-    Reg#(Bit#(AXICONFIGDATAWIDTH)) localY_load <- mkReg(0);
-    Reg#(Bit#(8)) reqBeats_load <- mkReg(0);
-    Reg#(Bit#(8)) countBeats_load <- mkReg(0);
-    Reg#(Loadphase) loadPhase <- mkReg(Request);
-    
-    rule loadViaAXI (topLevelStatus==Execution && !axi_readImage_Done);
-        Bit#(AXICONFIGDATAWIDTH) globalX = localX_load + windowCoord.x;
-        Bit#(AXICONFIGDATAWIDTH) globalY = localY_load + windowCoord.y;
-        if(localY_load < fromInteger(valueOf(SLIDINGWINDOWYPAD)) && globalY < resolutionY)
-            begin
-            if(loadPhase == Request)
-                begin
-                Bit#(AXICONFIGDATAWIDTH) reqAddr = _inputImageAddress + globalY*resolutionX + globalX;
-                Bit#(AXICONFIGDATAWIDTH) reqSpan = _resolutionX - globalX;
-                if (reqSpan > fromInteger(valueOf(MAXAXIBEATLEN)))
-                    reqSpan = fromInteger(valueOf(MAXAXIBEATLEN));
-                Bit#(8) beats = truncate(reqSpan-1);
-                reqBeats_load <= beats;
-                axi4_read_data(axiDataRd,reqAddr,unpack(beats));
-                loadPhase <= Read;
-                countBeats_load <= 0;
-                end
-            else // loadPhase == Read
-                begin
-                Bit#(AXIIMAGEDATAWIDTH) data <- axi4_read_response(axiDataRd);
-                axi_readImage.data[localY_load][localX_load] <= unpack(data);
-                if(countBeats_load==reqBeats_load) // End of burst
-                    begin
-                    loadPhase <= Request;
-                    if(localX_load < fromInteger(valueOf(SLIDINGWINDOWXPAD))) // Inside sliding window row
-                        localX_load <= localX_load + 1;
-                    else // End of sliding window row
-                        localX_load <= 0;
-                        localY_load <= localY_load + 1;
-                    end
-                else // Inside Burst
-                    localX_load <= localX_load + 1;
-                    countBeats_load <= countBeats_load + 1;
-                end
-            end
-        else // Insert window into imageInFIFO and move window
-            begin
-                WINDOW_IN completeWindow = axi_readImage;
-                completeWindow.x0y0 = windowCoord;
-                imageInFIFO.enq(completeWindow);
-                localX_load <= 0;
-                localY_load <= 0;
-                loadPhase <= Request;
-                COORD nextWindowCoord = windowCoord;
-                nextWindowCoord.y = nextWindowCoord.y + fromInteger(valueOf(SLIDINGWINDOWY));
-                if(!(nextWindowCoord.y < resolutionY)) // Window moves up and in x dir
-                    begin
-                    nextWindowCoord.x = nextWindowCoord.x + fromInteger(valueOf(SLIDINGWINDOWX));
-                    nextWindowCoord.y = 0;
-                    if(!(nextWindowCoord.x < resolutionX)) // End of image reached
-                        axi_readImage_Done <= True;
-                        nextWindowCoord = COORD{x:0,y:0};
-                    end
-                windowCoord <= nextWindowCoord;                
-            end
-    endrule
-
-    
-    // Filter image window
-    FIFO#(COORD) coordPipe <- mkSizedFIFO(valueOf(FIFODEPTH));
-    Vector#(SLIDINGWINDOWY,Vector#(SLIDINGWINDOWX,SobelOperator)) filterCores = newVector;
-    for(Integer localY=0; localY<valueOf(SLIDINGWINDOWY); localY=localY+1)
-        for(Integer localX=0; localX<valueOf(SLIDINGWINDOWX); localX=localX+1)
-            filterCores[localY][localX] <- mkSobelOperator();
-
-    // Push window into filter cores
-    rule inputImageInFilter;
-        WINDOW_IN window = imageInFIFO.first;
-        imageInFIFO.deq;
-        coordPipe.enq(window.x0y0);
-        for(Integer windowY=0; windowY<valueOf(SLIDINGWINDOWY); windowY=windowY+1)
-            for(Integer windowX=0; windowX<valueOf(SLIDINGWINDOWX); windowX=windowX+1)
-                begin
-                Vector#(7,Vector#(7,UInt#(8))) stencil;// = newVector;
-                for(Integer localY=0; localY<7; localY=localY+1)
-                    for(Integer localX=0; localX<7; localX=localX+1)
-                        begin
-                        Integer globalWindowY = windowY + localY;
-                        Integer globalWindowX = windowX + localX;
-                        stencil[localY][localX] = window.data[globalWindowX][globalWindowY];
-                        end
-                filterCores[windowY][windowX].insertStencil(stencil);
-                end
-    endrule
-    
-    // Pull results out of filter cores
-    FIFO#(WINDOW_OUT) filterResultOutFIFO <- mkSizedFIFO(valueOf(FIFODEPTH));
-    
-    rule pullDataFromFilterCores;
-        COORD coords = coordPipe.first;
-        coordPipe.deq;
-        WINDOW_OUT filteredRes;
-        filteredRes.x0y0 = coords;
-        for(Integer windowY=0; windowY<valueOf(SLIDINGWINDOWY); windowY=windowY+1)
-            for(Integer windowX=0; windowX<valueOf(SLIDINGWINDOWX); windowX=windowX+1)
-                begin
-                UInt#(8) filteredPx <- filterCores[windowY][windowX].getGradMag();
-                filteredRes.data[windowY][windowX] = filteredPx;
-                end
-        filterResultOutFIFO.enq(filteredRes);
-    endrule
-    
-    //Send filtered results
-    Reg#(Bool) axi_sendfilteredImage_Valid <- mkReg(False);
-    Reg#(WINDOW_OUT) axi_sendfilteredImage <- mkRegU();
-    
-    AXI4_Master_Wr#(AXIIMAGEADDRWIDTH,AXIIMAGEDATAWIDTH,AXIIMAGEIDWIDTH,AXIIMAGEUSERWIDTH) axiDataWr <- mkAXI4_Master_Wr(1,1,1,False);
-    
-    Reg#(Bit#(AXICONFIGDATAWIDTH)) localX_send <- mkReg(0);
-    Reg#(Bit#(AXICONFIGDATAWIDTH)) localY_send <- mkReg(0);
-    Reg#(Bit#(8)) reqBeats_send <- mkReg(0);
-    Reg#(Bit#(8)) countBeats_send <- mkReg(0);
-    Reg#(Sendphase) sendPhase <- mkReg(Request);
-    
-    rule sendViaAXI (topLevelStatus==Execution);
-        if(axi_sendfilteredImage_Valid)
-            begin
-            Bit#(AXICONFIGDATAWIDTH) globalX = localX_send + axi_sendfilteredImage.x0y0.x;
-            Bit#(AXICONFIGDATAWIDTH) globalY = localY_send + axi_sendfilteredImage.x0y0.y;
-            if(sendPhase == Request)
-                begin
-                Bit#(AXICONFIGDATAWIDTH) reqAddr = _outputImageAddress + globalY*resolutionX + globalX;
-                Bit#(AXICONFIGDATAWIDTH) reqSpan = fromInteger(valueOf(SLIDINGWINDOWX)) - localX_send;
-                reqSpan = min(reqSpan,resolutionX - globalX);
-                reqSpan = min(reqSpan,fromInteger(valueOf(MAXAXIBEATLEN))-1);
-                Bit#(8) beats = truncate(reqSpan);
-                reqBeats_send <= beats;
-                axi4_write_addr(axiDataWr,reqAddr,unpack(beats));
-                sendPhase <= Write;
-                countBeats_send <= 0;
-                end
-            else // sendPhase == Write
-                begin
-                UInt#(8) filteredData = axi_sendfilteredImage.data[localY_send][localX_send];
-                Bit#(TDiv#(AXIIMAGEDATAWIDTH, 8)) byte_enable = 0;
-                byte_enable = invert(byte_enable);
-                Bool last = False;
-                if(countBeats_send==reqBeats_send) // End of burst
-                    begin
-                    last = True;
-                    sendPhase <= Request;
-                    if(!(localX_send < fromInteger(valueOf(SLIDINGWINDOWX)))) // Row completely send
-                        begin
-                        localX_send <= 0;
-                        if(localY_send+1 < fromInteger(valueOf(SLIDINGWINDOWY)))
-                            localY_send <= localY_send + 1;
-                        else // All Rows completely send
-                            begin
-                            axi_sendfilteredImage_Valid <= False;
-                            localY_send <= 0;
-                            end
-                        end
-                    end
-                else // Inside burst
-                    begin
-                    countBeats_send <= countBeats_send + 1;
-                    localX_send <= localX_send + 1;
-                    end
-                axi4_write_data(axiDataWr,pack(filteredData),byte_enable,last);
-                end
-            end
-        else // Get next image window
-            begin
-                WINDOW_OUT axi_sendWindow = filterResultOutFIFO.first;
-                filterResultOutFIFO.deq;
-                axi_sendfilteredImage <= axi_sendWindow;
-                axi_sendfilteredImage_Valid <= True;
-                localX_send <= 0;
-                localY_send <= 0;
-                sendPhase <= Request;             
-            end
-    endrule
+    AXIGrayscaleWriter#(AXICONFIGDATAWIDTH,AXIIMAGEDATAWIDTH,SHIFTX,SHIFTX,MAXRESOLUTIONX) imageWriter <- mkAXIGrayscaleWriter();
     
     rule startComputation (executeCmd);
     // TODO: Check for valid values
@@ -395,25 +191,49 @@ module mkSobelFilter(SobelFilter);
         _filteringStatus <= Prepared;
         executeCmd <= False;
         topLevelStatus <= Execution;
-        for(Integer localY=0; localY<valueOf(SLIDINGWINDOWY); localY=localY+1)
-            for(Integer localX=0; localX<valueOf(SLIDINGWINDOWX); localX=localX+1)
-                filterCores[localY][localX].configure(_kernelSize);
+        for(Integer x=0; x<valueOf(SHIFTX); x=x+1)
+            filterCores[x].configure(_kernelSize);
+    endrule
+        
+    rule insertStencils;
+        Tuple3#(Bit#(AXICONFIGDATAWIDTH),Bit#(AXICONFIGDATAWIDTH),Vector#(WINDOWSIZEY,Vector#(WINDOWSIZEX,UInt#(8)))) windowData <- imageReader.getWindow();
+        Bit#(AXICONFIGDATAWIDTH) validSpan = tpl_1(windowData);
+        Vector#(WINDOWSIZEY,Vector#(WINDOWSIZEX,UInt#(8))) windowImg = tpl_3(windowData);
+        for(Integer x=0; x<valueOf(SHIFTX); x=x+1)
+            begin
+            Vector#(7,Vector#(7,UInt#(8))) stencil = newVector;
+            for(Integer stencilX=0; stencilX<7; stencilX=stencilX+1)
+                begin
+                Integer stencilXWind = x + stencilX;
+                for(Integer stencilY=0; stencilY<7; stencilY=stencilY+1)
+                    stencil[stencilY][stencilX] = windowImg[stencilY][stencilXWind];
+                end
+            if(validSpan < (fromInteger(x)+7))
+                filterCores[x].insertStencil(tuple2(stencil,True));
+            else
+                filterCores[x].insertStencil(tuple2(stencil,False));
+            end        
     endrule
     
-
-/*************************************** Image Transfer************************************************/
-
-
-
-    
-
+    rule extractStencils;
+        Vector#(SHIFTX,UInt#(8)) filteredValues = newVector;
+        Bit#(AXICONFIGDATAWIDTH) validSpan = fromInteger(valueOf(SHIFTX));
+        for(Integer x=0; x<valueOf(SHIFTX); x=x+1)
+            begin
+            Tuple2#(UInt#(8),Bool) oneFilteredPixel <- filterCores[x].getGradMag();
+            if(!tpl_2(oneFilteredPixel))
+                validSpan = min(fromInteger(x),validSpan);
+            filteredValues[x] = tpl_1(oneFilteredPixel);
+            end
+        imageWriter.setWindow(tuple2(validSpan,filteredValues));
+    endrule
 
 /*************************************** Image Transfer************************************************/    
     interface axiC_rd  = axiConfigSlave.s_rd;
     interface axiC_wr  = axiConfigSlave.s_wr;
     
-    interface axiD_rd = axiDataRd.fab;
-    interface axiD_wr = axiDataWr.fab;
+    interface axiD_rd = imageReader.axi4Fab;
+    interface axiD_wr = imageWriter.axi4Fab;
 endmodule
 
 endpackage
