@@ -67,14 +67,12 @@ module mkSobelOperator(SobelOperator);
         imageStencil_valid.deq;
         
         Vector#(7,Vector#(7,Int#(32))) extStencil = newVector;
-        Vector#(7,Vector#(7,Int#(32))) extKernelX = newVector;
-        Vector#(7,Vector#(7,Int#(32))) extKernelY = newVector;
+        Vector#(7,Vector#(7,Int#(32))) extKernel = newVector;
         for(Integer y=0; y<7; y=y+1)
             for(Integer x=0; x<7; x=x+1)
                 begin
                 extStencil[y][x] = signExtend(_imageStencil[y][x]);
-                extKernelX[y][x] = signExtend(kernel[y][x]);
-                extKernelY[y][x] = signExtend(kernel[x][y]);
+                extKernel[y][x] = signExtend(kernel[y][x]);
                 end
         /*
         $display("extStencil:");
@@ -90,8 +88,8 @@ module mkSobelOperator(SobelOperator);
         for(Integer y=0; y<7; y=y+1)
             for(Integer x=0; x<7; x=x+1)
                 begin
-                extMultX[y][x] = extStencil[y][x]*extKernelX[y][x];
-                extMultY[y][x] = extStencil[y][x]*extKernelY[y][x];
+                extMultX[y][x] = extStencil[y][x]*extKernel[y][x];
+                extMultY[y][x] = extStencil[y][x]*extKernel[x][y];
                 end
             
         /*

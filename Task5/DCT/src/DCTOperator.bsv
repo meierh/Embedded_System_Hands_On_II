@@ -166,21 +166,27 @@ module mkDCTOperator(DCTOperator);
     
 endmodule
 
-/*
 module mkDCTPassthrough(DCTOperator);
 
     FIFO#(BLOCK) blockFIFO <- mkSizedFIFO(fifoDepth);
 
-    method Action setBlock (Vector#(8,Vector#(8,UInt#(8))) block);
+    method Action setBlock (BLOCK block);
         blockFIFO.enq(block);
     endmethod
     
-    method ActionValue#(Vector#(8,Vector#(8,Int#(FIXEDWIDTH)))) getBlock ();
-        Vector#(8,Vector#(8,Int#(FIXEDWIDTH))) bl = dctBlock.first;
+    method ActionValue#(Vector#(8,Vector#(8,Int#(16)))) getBlock ();
+        BLOCK bl = blockFIFO.first;
+        Vector#(8,Vector#(8,Int#(16))) outBlock = newVector;
+        for(Integer i=0; i<8; i=i+1)
+            for(Integer j=0; j<8; j=j+1)
+                begin
+                Bit#(8) pxBit = pack(bl[i][j]);
+                Bit#(16) pxBitLa = extend(pxBit);
+                outBlock[i][j] = unpack(pxBitLa);
+                end
         blockFIFO.deq;
-        return bl;
+        return outBlock;
     endmethod
 endmodule
-*/
 
 endpackage

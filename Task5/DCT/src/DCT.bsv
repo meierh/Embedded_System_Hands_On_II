@@ -6,37 +6,26 @@ import FIFO :: * ;
 import BlueAXI :: * ;
 import AXI4_Types :: * ;
 import AXIDCTBlockReader :: *;
+import AXIDCTBlockWriter :: *;
+import DCTOperator :: *;
 
 typedef 8 AXICONFIGADDRWIDTH;
 typedef 64 AXICONFIGDATAWIDTH;
+typedef 128 AXIIMAGEDATAWIDTH;
 
-typedef 64 AXIIMAGEADDRWIDTH;
-typedef 8 AXIIMAGEDATAWIDTH;
-typedef 1 AXIIMAGEIDWIDTH;
-typedef 1 AXIIMAGEUSERWIDTH;
-
-typedef 180 MAXIMAGEWIDTH;
-typedef 1 SIMULTROWS;
-
-typedef 10 SLIDINGWINDOWX;
-typedef 10 SLIDINGWINDOWY;
-typedef 16 SLIDINGWINDOWXPAD;
-typedef 16 SLIDINGWINDOWYPAD;
+typedef 1 SIMULTBLOCKS;
 
 typedef enum {
-    Configuration = 3'b000,
-    Execution = 3'b001,
-    Finished = 3'b010
+    Configuration = 1'b0,
+    Execution = 1'b1
     } TopLevelStatusInfo deriving (Bits,Eq);
 
 interface DCT;
     (*prefix = "AXI_Config"*) interface AXI4_Lite_Slave_Rd_Fab#(AXICONFIGADDRWIDTH, AXICONFIGDATAWIDTH) axiC_rd;
     (*prefix = "AXI_Config"*) interface AXI4_Lite_Slave_Wr_Fab#(AXICONFIGADDRWIDTH, AXICONFIGDATAWIDTH) axiC_wr;
     
-    (*prefix = "AXI_Image"*) interface AXI4_Master_Rd_Fab#(AXIIMAGEADDRWIDTH,AXIIMAGEDATAWIDTH,AXIIMAGEIDWIDTH,
-                                                           AXIIMAGEUSERWIDTH) axiD_rd;
-    (*prefix = "AXI_Image"*) interface AXI4_Master_Wr_Fab#(AXIIMAGEADDRWIDTH,AXIIMAGEDATAWIDTH,AXIIMAGEIDWIDTH,
-                                                           AXIIMAGEUSERWIDTH) axiD_wr;
+    (*prefix = "AXI_Image"*) interface AXI4_Master_Rd_Fab#(AXICONFIGDATAWIDTH,AXIIMAGEDATAWIDTH,1,0) axiD_rd;
+    (*prefix = "AXI_Image"*) interface AXI4_Master_Wr_Fab#(AXICONFIGDATAWIDTH,AXIIMAGEDATAWIDTH,1,0) axiD_wr;
 endinterface
 
 module mkDCT(DCT);
@@ -68,10 +57,6 @@ module mkDCT(DCT);
     function Action writeInputAddr (Bit#(AXICONFIGDATAWIDTH) d, Bit#(TDiv#(AXICONFIGDATAWIDTH, 8)) s, AXI4_Lite_Prot p);
                 action
                     inputImageAddress <= unpack(d);
-                    /*
-                    if(topLevelStatus==Unconfigured)
-                        inputImageAddressValid <= True;
-                    */
                 endaction
     endfunction : writeInputAddr
     WriteOperation#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeInputAddrStruct;
@@ -84,10 +69,6 @@ module mkDCT(DCT);
     function Action writeOutputAddr (Bit#(AXICONFIGDATAWIDTH) d, Bit#(TDiv#(AXICONFIGDATAWIDTH, 8)) s, AXI4_Lite_Prot p);
                 action
                     outputImageAddress <= unpack(d);
-                    /*
-                    if(topLevelStatus==Unconfigured)
-                        outputImageAddressValid <= True;
-                    */
                 endaction
     endfunction : writeOutputAddr
     WriteOperation#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeOutputAddrStruct;
@@ -100,10 +81,6 @@ module mkDCT(DCT);
     function Action writeNumberBlocksFunc (Bit#(AXICONFIGDATAWIDTH) d, Bit#(TDiv#(AXICONFIGDATAWIDTH, 8)) s, AXI4_Lite_Prot p);
                 action
                     numberBlocks <= d;
-                    /*
-                    if(topLevelStatus==Unconfigured)
-                        resolutionXValid <= True;
-                    */
                 endaction
     endfunction : writeNumberBlocksFunc
     WriteOperation#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeNumberBlocksStruct;
@@ -126,23 +103,50 @@ module mkDCT(DCT);
     writeExecuteCommand = tagged Write writeExecuteCmdStruct;
     configurationOperations = List::cons(writeExecuteCommand,configurationOperations);
     
-    Reg#(Bit#(AXICONFIGDATAWIDTH)) _inputImageAddress <- mkReg(0);
-    Reg#(Bit#(AXICONFIGDATAWIDTH)) _outputImageAddress <- mkReg(0);
-    Reg#(Bit#(AXICONFIGDATAWIDTH)) _numberBlocks <- mkReg(0);
+
+/************************************** Execution *************************************************/
+    AXIDCTBlockReader#(AXICONFIGDATAWIDTH,SIMULTBLOCKS) reader <- mkAXIDCTBlockReader();
+    AXIDCTBlockWriter#(AXICONFIGDATAWIDTH,SIMULTBLOCKS) writer <- mkAXIDCTBlockWriter();
+    Vector#(SIMULTBLOCKS,DCTOperator) dctOperators = newVector;
+    for(Integer i=0; i<valueOf(SIMULTBLOCKS); i=i+1)
+        dctOperators[i] <- mkDCTOperator();
     
-    rule startComputation (executeCmd);
-    // TODO: Check for valid values
-        _inputImageAddress <= inputImageAddress;
-        _outputImageAddress <= outputImageAddress;
-        _numberBlocks <= numberBlocks;
+    rule startComputation (topLevelStatus==Configuration && executeCmd);
         executeCmd <= False;
         topLevelStatus <= Execution;
+        reader.configure(inputImageAddress,numberBlocks);
+        writer.configure(outputImageAddress,numberBlocks);
     endrule
     
-    AXIDCTBlockReader#(AXICONFIGDATAWIDTH,4) readBlocks <- mkAXIDCTBlockReader();
+    rule insertData(topLevelStatus==Execution);
+        Vector#(SIMULTBLOCKS,Vector#(8,Vector#(8,Bit#(8)))) multiBlocks <- reader.getMultiBlock();
+        Vector#(SIMULTBLOCKS,Vector#(8,Vector#(8,UInt#(8)))) multiBlocksInt = newVector;
+        for(Integer i=0; i<valueOf(SIMULTBLOCKS); i=i+1)
+            for(Integer j=0; j<8; j=j+1)
+                for(Integer k=0; k<8; k=k+1)
+                    multiBlocksInt[i][j][k] = unpack(multiBlocks[i][j][k]);
+        for(Integer i=0; i<valueOf(SIMULTBLOCKS); i=i+1)
+            dctOperators[i].setBlock(multiBlocksInt[i]);
+    endrule
     
-    interface axiD_rd = readBlocks.axi4Fab;
-    interface axiD_wr = axiDataWr.fab;
+    rule extractData(topLevelStatus==Execution);
+        Vector#(SIMULTBLOCKS,Vector#(8,Vector#(8,Int#(16)))) multiBlocksInt = newVector;
+        for(Integer i=0; i<valueOf(SIMULTBLOCKS); i=i+1)
+            multiBlocksInt[i] <- dctOperators[i].getBlock();        
+        Vector#(SIMULTBLOCKS,Vector#(8,Vector#(8,Bit#(16)))) multiBlocks = newVector;
+        for(Integer i=0; i<valueOf(SIMULTBLOCKS); i=i+1)
+            for(Integer j=0; j<8; j=j+1)
+                for(Integer k=0; k<8; k=k+1)
+                    multiBlocks[i][j][k] = pack(multiBlocksInt[i][j][k]);
+        writer.setBlock(multiBlocks);
+    endrule
+    
+    rule finishExec(topLevelStatus==Execution && writer.done());
+        topLevelStatus <= Configuration;
+    endrule
+    
+    interface axiD_rd = reader.axi4Fab;
+    interface axiD_wr = writer.axi4Fab;
 endmodule
 
 endpackage

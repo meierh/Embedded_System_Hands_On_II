@@ -32,42 +32,89 @@ sobel7 = np.array([[ 1, 4,  5,0,  -5, -4, -1],
                    [ 6,24, 30,0, -30,-24, -6],
                    [ 1, 4,  5,0,  -5, -4, -1]],dtype=np.float128)
 
+def computeIntKernel(kernel,bitwidth):
+    extKernel = kernel*(2**bitwidth)
+    intKernel = np.round(extKernel)
+    error = np.abs(intKernel-extKernel) / np.min(extKernel)*100
+    return extKernel,error
 
-def printSobelPure(div,param):
-    param = param / div;
-    print(param)
+def imageBlock():
+    img = np.zeros((7,7),dtype=np.float128)
+    for y in range(7):
+        for x in range(7):
+            if y<4:
+                img[y][x] = 255-y*y-3*x*x;
+            else:
+                img[y][x] = 200-y*y-3*x*x;
+    img = np.floor(img)
+    return img
 
-def printSobelShift(div,param,bits):
-    param = param / div
-    param = param * 2**bits
-    print(param)
-    
-#printSobelShift(sobel3Div,sobel3,12)
-printSobelShift(sobel5Div,sobel5,24)
-printSobelShift(sobel7Div,sobel7,24)
+def randImage():
+    img = np.random.random_integers(0,255,(7,7))
+    assert(img.shape==(7,7))
+    return img
 
-stencil = np.zeros((7,7))
-for y in range(7):
-    for x in range(7):
-        stencil[y][x] = y*x*5
+def rawSobel(kernel,stencil):
+    mulSobelX = np.zeros((7,7),dtype=np.float128)
+    mulSobelY = np.zeros((7,7),dtype=np.float128)
+    for y in range(7):
+        for x in range(7):
+            mulSobelX[y][x] = stencil[y][x]*kernel[y][x]
+            mulSobelY[y][x] = stencil[y][x]*kernel[x][y]
+    sumSobelX = np.zeros((7),dtype=np.float128)
+    sumSobelY = np.zeros((7),dtype=np.float128)
+    for y in range(7):
+        for x in range(7):
+            sumSobelX[y] = sumSobelX[y] + mulSobelX[y][x]
+            sumSobelY[y] = sumSobelY[y] + mulSobelY[y][x]
+    sobelX = np.sum(sumSobelX)
+    sobelY = np.sum(sumSobelY)
+    sobel = np.abs(sobelX+sobelY)
+    return sobel
 
-def applySobel(sobelKernel,sobelDiv,stencil):
-    sobelKernel = sobelKernel / sobelDiv
-    print(sobelKernel*4096)
-    print(stencil)
-    mulX = sobelKernel*stencil
-    print(mulX*4096)
-    sobelKernel = np.transpose(sobelKernel)
-    mulY = sobelKernel*stencil
-    print(mulY*4096)
-    sobel_x = np.sum(mulX)
-    sobel_y = np.sum(mulY)
-    print(sobel_x*4096)
-    print(sobel_y*4096)
-    sobel = np.abs(sobel_x+sobel_y)
-    print(sobel*4096)
-    print(sobel)
-    
-#applySobel(sobel5,sobel5Div,stencil)
+def emulSobel(kernel,stencil,bitwidth):
+    kernel = computeIntKernel(kernel,bitwidth)
+    mulSobelX = np.zeros((7,7),dtype=np.float128)
+    mulSobelY = np.zeros((7,7),dtype=np.float128)
+    for y in range(7):
+        for x in range(7):
+            mulSobelX[y][x] = stencil[y][x]*kernel[y][x]
+            mulSobelY[y][x] = stencil[y][x]*kernel[x][y]
+    mulSobelX = np.floor(mulSobelX)
+    mulSobelY = np.floor(mulSobelY)
+    sumSobelX = np.zeros((7),dtype=np.float128)
+    sumSobelY = np.zeros((7),dtype=np.float128)
+    for y in range(7):
+        for x in range(7):
+            sumSobelX[y] = sumSobelX[y] + mulSobelX[y][x]
+            sumSobelY[y] = sumSobelY[y] + mulSobelY[y][x]
+    sumSobelX = np.floor(sumSobelX)
+    sumSobelY = np.floor(sumSobelY)
+    sobelX = np.sum(sumSobelX)
+    sobelY = np.sum(sumSobelY)
+    sobelX = np.floor(sobelX)
+    sobelY = np.floor(sobelY)
+    sobel = np.abs(sobelX+sobelY)
+    sobel = np.floor(sobel)
+    return sobel
 
+def computeError(img,kernel,bitwidth):
+    rawSobelBlock = rawSobel(kernel,img)
+    intSobelBlock = emulSobel(kernel,img,bitwidth)
+    error = np.divide(np.abs(rawSobelBlock-intSobelBlock),rawSobelBlock,out=np.zeros_like(rawSobelBlock), where=np.abs(rawSobelBlock)>1e-10)*100
+    error = np.max(error)
+    return error
+
+for bitwidth in range(20):
+    error = 0
+    errorSum = 0
+    for k in range(1000):
+        img = randImage()
+        def imgGetter():
+            return img
+        oneError = computeError(img,sobel3/sobel3Div,bitwidth)
+        error = max(error,oneError)
+        errorSum += oneError
+    errorSum /= 100
+    print("Bitwidth: ",bitwidth,":  ",errorSum,"  ",error)
 

@@ -1,133 +1,120 @@
 package AXIDCTBlockWriter;
 
-import List :: * ;
 import Vector :: * ;
-import FIFO :: * ;
+import FIFOF :: * ;
 import Real :: * ;
 import AXI4_Types :: * ;
 import AXI4_Master :: * ;
-import MIMO :: *;
 import GetPut :: *;
-import BRAMFIFO :: * ;
-import MIMO :: * ;
 
 typedef enum {
     Request = 2'b00,
-    Read = 2'b01,
-    Move = 2'b10
+    Send = 2'b01
     } AXIBurstStoragePhase deriving (Bits,Eq);
     
-typedef enum {
-    InitialFillRowBuffer = 3'b000,
-    InitialFillWindow = 3'b001,
-    Valid = 3'b010,
-    YShift = 3'b011,
-    End = 3'b100
-    } WindowPhase deriving (Bits,Eq);
-
 (* always_ready, always_enabled *)
-interface AXIDCTBlockReader#(numeric type addrwidth, numeric type maxBurstLen);
-    method ActionValue#(Bool) configure (Bit#(addrwidth) _outputAddress);
-    method Action setBlock (Vector#(8,Vector#(8,UInt#(8))) block);
+interface AXIDCTBlockWriter#(numeric type addrwidth, numeric type simultBlocks);
+    method Action setBlock (Vector#(simultBlocks,Vector#(8,Vector#(8,Bit#(16)))) multiBlock);
+    method Action configure (Bit#(addrwidth) _outputAddress, Bit#(addrwidth) _numberBlocks);
+    method Bool done ();
     interface AXI4_Master_Wr_Fab#(addrwidth,128,1,0) axi4Fab;
 endinterface
 
-module mkAXIDCTBlockWriter(AXIDCTBlockWriter#(addrwidth,maxBurstLen))
+module mkAXIDCTBlockWriter(AXIDCTBlockWriter#(addrwidth,simultBlocks))
                                 provisos(Max#(addrwidth,8,addrwidth),
+                                         Max#(simultBlocks,64,64),
                                          Add#(a__, 8, addrwidth)); // 8 <= addrwidth
 
 // Configuration registers
     Reg#(Bit#(addrwidth)) outputAddress <- mkReg(0);
+    Reg#(Bit#(addrwidth)) numberBlocks <- mkReg(0);
     Reg#(Bool) validConfig <- mkReg(False);
 
 // AXI connect
-    AXI4_Master_Rd#(addrwidth,128,1,0) axiDataRd <- mkAXI4_Master_Rd(1,1,False);
+    AXI4_Master_Wr#(addrwidth,128,1,0) axiDataWr <- mkAXI4_Master_Wr(1,1,1,False);
     
+    FIFOF#(Vector#(simultBlocks,Vector#(8,Vector#(8,Bit#(16))))) inputBlocks <- mkFIFOF();    
+
 // Load data from AXI slave
     Reg#(Bit#(addrwidth)) blockCounter <- mkReg(0);
     Reg#(Bit#(addrwidth)) addrOffset <- mkReg(0);
     Reg#(AXIBurstStoragePhase) axiWritePhase <- mkReg(Request);
-        
-    FIFO#(Vector#(8,Vector#(8,UInt#(8)))) inputBlocks <- mkSizedBRAMFIFO(128);
+    Reg#(Bit#(addrwidth)) announcedBeats <- mkReg(0);
     
-    Vector#(TMul#(maxBurstLen,16),Reg#(UInt#(8))) axiBurstRegisters;
-    for(Integer i=0; i<valueOf(maxBurstLen)*16; i=i+1)
-        axiBurstRegisters[i] <- mkRegU();
-    Reg#(Bit#(addrwidth)) axiBurstRegWriteIndex <- mkReg(0);
-    
-    rule writeToBurst;
-        if(axiBurstRegWriteIndex+64<=fromInteger(valueOf(maxBurstLen))*16)
-            begin
-            Vector#(8,Vector#(8,UInt#(8))) block = inputBlocks.first;
-            for(Integer y=0; y<8; y=y+1)
-                for(Integer x=0; x<8; x=x+1)
-                    axiBurstRegisters[axiBurstRegWriteIndex+fromInteger(y*8+x)] <= block[y][x];
-            axiBurstRegWriteIndex <= axiBurstRegWriteIndex + 64;
-            end
-        else
-            begin
-            
-            axiBurstRegWriteIndex <= 0;
-            end
-        
-    endrule
-    
-    rule requestData (validConfig && axiLoadPhase==Request);
+    rule announceData (validConfig && inputBlocks.notEmpty() && axiWritePhase==Request);
         if(blockCounter < numberBlocks)
             begin
-            Bit#(addrwidth) reqAddr = inputImageAddress + addrOffset;
+            Bit#(addrwidth) reqAddr = outputAddress + addrOffset;
             Bit#(addrwidth) _remainigBlocks = numberBlocks - blockCounter;
-            Bit#(addrwidth) _remainingBeats = _remainigBlocks * 4;
-            Bit#(addrwidth) _requestedBeats;
-            if(_remainingBeats < fromInteger(valueOf(maxBurstLen)))
-                _requestedBeats = _remainingBeats;
-            else
-                _requestedBeats = fromInteger(valueOf(maxBurstLen));
-            Bit#(addrwidth) _requestedBeats_Min1 = _requestedBeats-1;
-            Bit#(8) _requestedBeats_Min1_Trunc = truncate(_requestedBeats_Min1);
-            axi4_read_data(axiDataRd,reqAddr,unpack(_requestedBeats_Min1_Trunc));
-            $display("_remainingBeats: %d",_remainingBeats);
-            axiLoadPhase <= Read;
+            Bit#(addrwidth) _announcedBlocks = fromInteger(valueOf(simultBlocks));
+            if(_remainigBlocks < _announcedBlocks)
+                _announcedBlocks = _remainigBlocks;
+            Bit#(addrwidth) _announcedBeats = _announcedBlocks*8;
+            announcedBeats <= _announcedBeats;
+            Bit#(addrwidth) _announcedBeats_Min1 = _announcedBeats-1;
+            Bit#(8) _announcedBeats_Min1_Trunc = truncate(_announcedBeats_Min1);
+            axi4_write_addr(axiDataWr,reqAddr,unpack(_announcedBeats_Min1_Trunc));
+            axiWritePhase <= Send;
+            blockCounter <= blockCounter + _announcedBlocks;
+            addrOffset <= addrOffset + _announcedBlocks * 64 * 2;
             end
         else
             validConfig <= False;
     endrule
+
+    Reg#(Bit#(addrwidth)) sendBeatCount <- mkReg(0);
+    Reg#(Bit#(addrwidth)) sendRowCount <- mkReg(0);
+    Reg#(Bit#(addrwidth)) sendBlockCount <- mkReg(0);
     
-    rule readData (axiLoadPhase==Read);
-        let readResponse <- axiDataRd.response.get();
-        Bit#(128) responseData  = readResponse.data;
-        Bool responseLast = readResponse.last;
-        
-        Vector#(16,UInt#(8)) pixels;
-        Integer pixelBitStart = 127;
-        for(Integer i=0; i<16; i=i+1)
+    rule sendData (axiWritePhase==Send);
+        if(sendBeatCount<announcedBeats)
             begin
-            pixels[i] = unpack(responseData[pixelBitStart:pixelBitStart-7]);
-            pixelBitStart = pixelBitStart - 8;
-            end
-        for(Integer i=0; i<16; i=i+1)
-            axiBurstRegisters[axiBurstRegWriteIndex+fromInteger(i)] <= pixels[i];
-            
-        if(responseLast)
-            begin
-            axiLoadPhase <= Move;
-            axiBurstRegWriteIndex <= 0;
+            Bool lastBeat = False;
+            if(sendBeatCount==(announcedBeats-1))
+                lastBeat = True;
+            Vector#(simultBlocks,Vector#(8,Vector#(8,Bit#(16)))) multiBlock = inputBlocks.first;
+            Integer pixelBitStart = 127;
+            Bit#(128) sendDataBlock = 0;
+            for(Integer i=0; i<8; i=i+1)
+                begin
+                sendDataBlock[pixelBitStart:pixelBitStart-15] = multiBlock[sendBlockCount][sendRowCount][i];
+                pixelBitStart = pixelBitStart - 16;
+                end
+            axi4_write_data(axiDataWr,sendDataBlock,16'b1111111111111111,lastBeat);
+            sendBeatCount <= sendBeatCount + 1;
+            if(sendRowCount==7)
+                begin
+                sendRowCount <= 0;
+                sendBlockCount <= sendBlockCount + 1;
+                end
+            else
+                sendRowCount <= sendRowCount + 1;
             end
         else
-            axiBurstRegWriteIndex <= axiBurstRegWriteIndex + 16;
-        addrOffset <= addrOffset + 16;
+            begin
+            sendBeatCount <= 0;
+            sendRowCount <= 0;
+            sendBlockCount <= 0;
+            axiWritePhase <= Request;
+            inputBlocks.deq;
+            end
     endrule
 
-    method Action setBlock (Vector#(8,Vector#(8,UInt#(8))) block);
-        inputBlocks.enq(block);
+    method Action setBlock (Vector#(simultBlocks,Vector#(8,Vector#(8,Bit#(16)))) multiBlock);
+        inputBlocks.enq(multiBlock);
     endmethod
     
-    method ActionValue#(Bool) configure (Bit#(addrwidth) _outputAddress);
+    method Action configure (Bit#(addrwidth) _outputAddress, Bit#(addrwidth) _numberBlocks) if(!validConfig && (axiWritePhase==Request));
         outputAddress <= _outputAddress;
-        return True;
+        numberBlocks <= _numberBlocks;
+        validConfig <= True;
     endmethod
     
-    interface axi4Fab = axiDataRd.fab;
+    method Bool done();
+        return !validConfig && (axiWritePhase==Request);
+    endmethod
+
+    interface axi4Fab = axiDataWr.fab;
     
 endmodule
 

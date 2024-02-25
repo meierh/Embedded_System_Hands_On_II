@@ -9,9 +9,9 @@ package TestsMainTest;
     (* synthesize *)
     module [Module] mkTestsMainTest(TestHelper::TestHandler);
 
-        DCTOperator dut <- mkDCTOperator();
         VectorDelayer#(8) vecDel <- mkVectorDelayer();
         SystolicArray#(16) sysArr <- mkSystolicArray();
+        DCTOperator dct <- mkDCTOperator();
         
         function Action printMatrix_16 (Vector#(8,Vector#(8,Int#(16))) matrix);
             action
@@ -26,13 +26,16 @@ package TestsMainTest;
             endaction
         endfunction  
         
+        /*
         rule printOutVectorDelayer;
             Int#(8) out <- vecDel.getElement();
             $display("Out: %d",out);
         endrule
-
+        */
+        
         Stmt s = {
             seq
+                /*
                 action
                     Vector#(8,Int#(8)) enter = newVector;
                     for(Integer i=0; i<8; i=i+1)
@@ -60,6 +63,24 @@ package TestsMainTest;
                     Vector#(8,Vector#(8,Int#(16))) matC <- sysArr.getResult();
                     printMatrix_16(matC);
                 endaction
+                */
+                action
+                    $display("Set img",$time);
+                    Vector#(8,Vector#(8,UInt#(8))) img = newVector;
+                    for(Integer y=0; y<8; y=y+1)
+                        for(Integer x=0; x<8; x=x+1)
+                            if(y<4)
+                                img[y][x] = 255-fromInteger(y*y)-3*fromInteger(x*x);
+                            else
+                                img[y][x] = 200-fromInteger(y*y)-3*fromInteger(x*x);
+                    dct.setBlock(img);
+                endaction
+                action
+                    $display("Get block",$time);
+                    let bl <- dct.getBlock();
+                    printMatrix_16(bl);
+                endaction
+                $finish(0);
             endseq
         };
         FSM testFSM <- mkFSM(s);
