@@ -14,14 +14,16 @@ import SobelOperator :: * ;
 // must be equal to AXICONFIGDATAWIDTH
 typedef 8 AXICONFIGADDRWIDTH;
 typedef 64 AXICONFIGDATAWIDTH;
-
 typedef 128 AXIIMAGEDATAWIDTH;
-typedef 16 AXIIMAGEDATALEN;
 
-typedef 80 FILTEREDDATAWIDTH;
-typedef 10 FILTEREDWIDTH;
+typedef 22 WINDOWSIZEX;
+typedef 7 WINDOWSIZEY;
+typedef 16 SHIFTX;
+typedef 3 PAD;
 
-typedef 256 MAXAXIBURSTLEN;
+typedef 2000 MAXRESOLUTIONX;
+
+typedef 256 MAXAXIBEATLEN;
 
 //(* always_ready, always_enabled *)
 interface SobelFilter;
@@ -33,14 +35,12 @@ interface SobelFilter;
     (*prefix = "AXI_Image"*) interface AXI4_Master_Wr_Fab#(AXICONFIGDATAWIDTH,AXIIMAGEDATAWIDTH,1,0) axiD_wr;
 endinterface
 
-module mkSobelFilter(SobelFilter) 
-                    provisos(Log#(17, 7),
-                             Log#(17, 4));
+module mkSobelFilter(SobelFilter);
 
 /******************************* Configuration Registers **********************************************/
     Reg#(Bit#(AXICONFIGDATAWIDTH)) inputImageAddress <- mkReg(0);
     Reg#(Bit#(AXICONFIGDATAWIDTH)) outputImageAddress <- mkReg(0);
-    Reg#(Bit#(AXICONFIGDATAWIDTH)) chunksCountX <- mkReg(0);
+    Reg#(Bit#(AXICONFIGDATAWIDTH)) resolutionX <- mkReg(0);
     Reg#(Bit#(AXICONFIGDATAWIDTH)) resolutionY <- mkReg(0);
     Reg#(FilterType) kernelSize <- mkReg(Sobel3);
     Reg#(Bool) executeCmd <- mkReg(False);
@@ -66,6 +66,10 @@ module mkSobelFilter(SobelFilter)
     function Action writeInputAddr (Bit#(AXICONFIGDATAWIDTH) d, Bit#(TDiv#(AXICONFIGDATAWIDTH, 8)) s, AXI4_Lite_Prot p);
                 action
                     inputImageAddress <= unpack(d);
+                    /*
+                    if(topLevelStatus==Unconfigured)
+                        inputImageAddressValid <= True;
+                    */
                 endaction
     endfunction : writeInputAddr
     WriteOperation#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeInputAddrStruct;
@@ -78,6 +82,10 @@ module mkSobelFilter(SobelFilter)
     function Action writeOutputAddr (Bit#(AXICONFIGDATAWIDTH) d, Bit#(TDiv#(AXICONFIGDATAWIDTH, 8)) s, AXI4_Lite_Prot p);
                 action
                     outputImageAddress <= unpack(d);
+                    /*
+                    if(topLevelStatus==Unconfigured)
+                        outputImageAddressValid <= True;
+                    */
                 endaction
     endfunction : writeOutputAddr
     WriteOperation#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeOutputAddrStruct;
@@ -86,22 +94,30 @@ module mkSobelFilter(SobelFilter)
     configurationOperations = List::cons(writeOutputAddress,configurationOperations);
     
 // Write resolutionX command operation
-    RegisterOperator#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeChunksCountX;    
-    function Action writeChunksCountXSize (Bit#(AXICONFIGDATAWIDTH) d, Bit#(TDiv#(AXICONFIGDATAWIDTH, 8)) s, AXI4_Lite_Prot p);
+    RegisterOperator#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeResolutionX;    
+    function Action writeResolutionXSize (Bit#(AXICONFIGDATAWIDTH) d, Bit#(TDiv#(AXICONFIGDATAWIDTH, 8)) s, AXI4_Lite_Prot p);
                 action
-                    chunksCountX <= d;
+                    resolutionX <= d;
+                    /*
+                    if(topLevelStatus==Unconfigured)
+                        resolutionXValid <= True;
+                    */
                 endaction
-    endfunction : writeChunksCountXSize
-    WriteOperation#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeChunksCountXStruct;
-    writeChunksCountXStruct = WriteOperation { index:24, fun:writeChunksCountXSize };
-    writeChunksCountX = tagged Write writeChunksCountXStruct;
-    configurationOperations = List::cons(writeChunksCountX,configurationOperations);
+    endfunction : writeResolutionXSize
+    WriteOperation#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeResolutionXStruct;
+    writeResolutionXStruct = WriteOperation { index:24, fun:writeResolutionXSize };
+    writeResolutionX = tagged Write writeResolutionXStruct;
+    configurationOperations = List::cons(writeResolutionX,configurationOperations);
     
 // Write resolutionY command operation
     RegisterOperator#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeResolutionY;    
     function Action writeResolutionYSize (Bit#(AXICONFIGDATAWIDTH) d, Bit#(TDiv#(AXICONFIGDATAWIDTH, 8)) s, AXI4_Lite_Prot p);
                 action
                     resolutionY <= d;
+                    /*
+                    if(topLevelStatus==Unconfigured)
+                        resolutionYValid <= True;
+                    */
                 endaction
     endfunction : writeResolutionYSize
     WriteOperation#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeResolutionYStruct;
@@ -148,57 +164,77 @@ module mkSobelFilter(SobelFilter)
 /******************************************************************************************************/
 
 
-/********************************* Image Filtering Registers ******************************************/    
-    AXIGrayscaleReader#(AXICONFIGDATAWIDTH,AXIIMAGEDATAWIDTH,MAXAXIBURSTLEN) reader <- mkAXIGrayscaleReader();
-    AXIGrayscaleWriter#(AXICONFIGDATAWIDTH,AXIIMAGEDATAWIDTH,FILTEREDWIDTH,MAXAXIBURSTLEN) writer <- mkAXIGrayscaleWriter();
-    
-    Vector#(FILTEREDWIDTH,SobelOperator) filterCores = newVector;
-    for(Integer x=0; x<valueOf(FILTEREDDATAWIDTH)/8; x=x+1)
+/********************************* Image Filtering Registers ******************************************/
+    Reg#(Bit#(AXICONFIGDATAWIDTH)) _inputImageAddress <- mkReg(0);
+    Reg#(Bit#(AXICONFIGDATAWIDTH)) _outputImageAddress <- mkReg(0);
+    Reg#(Bit#(AXICONFIGDATAWIDTH)) _resolutionX <- mkReg(0);
+    Reg#(Bit#(AXICONFIGDATAWIDTH)) _resolutionY <- mkReg(0);
+    Reg#(FilterType) _kernelSize <- mkReg(Sobel3);
+    Vector#(SHIFTX,SobelOperator) filterCores = newVector;
+    for(Integer x=0; x<valueOf(SHIFTX); x=x+1)
         filterCores[x] <- mkSobelPassthrough();
-        
+    //Reg#(FilterStatus) _filteringStatus <- mkReg(Idle);
+    Reg#(Computephase) computePhase <- mkReg(LoadAndFilter);
+    
+    AXIGrayscaleReader#(AXICONFIGDATAWIDTH,AXIIMAGEDATAWIDTH,WINDOWSIZEX,WINDOWSIZEY,SHIFTX,MAXRESOLUTIONX,WINDOWSIZEX,MAXAXIBEATLEN) imageReader <- mkAXIGrayscaleReader();
+    
+    AXIGrayscaleWriter#(AXICONFIGDATAWIDTH,AXIIMAGEDATAWIDTH,SHIFTX,SHIFTX,MAXRESOLUTIONX) imageWriter <- mkAXIGrayscaleWriter();
+    
     rule startComputation (topLevelStatus==Configuration && executeCmd);
-        reader.configure(inputImageAddress,chunksCountX,resolutionY);
-        Bit#(AXICONFIGDATAWIDTH) numberChunks = chunksCountX*resolutionY;
-        writer.configure(outputImageAddress,numberChunks);
-        topLevelStatus <= Execution;
+        if(resolutionX <= fromInteger(valueOf(MAXRESOLUTIONX)))
+            begin
+            _inputImageAddress <= inputImageAddress;
+            _outputImageAddress <= outputImageAddress;
+            _resolutionX <= resolutionX;
+            _resolutionY <= resolutionY;
+            _kernelSize <= kernelSize;
+            //_filteringStatus <= Prepared;
+            topLevelStatus <= Execution;            
+            for(Integer x=0; x<valueOf(SHIFTX); x=x+1)
+                filterCores[x].configure(_kernelSize);
+            end
         executeCmd <= False;
     endrule
         
     rule insertStencils;
-        Vector#(7,Vector#(AXIIMAGEDATALEN,Bit#(8))) _window <- reader.getWindow();
-        for(Integer offsetX=0; offsetX<valueOf(FILTEREDDATAWIDTH)/8; offsetX=offsetX+1)
+        Tuple3#(Bit#(AXICONFIGDATAWIDTH),Bit#(AXICONFIGDATAWIDTH),Vector#(WINDOWSIZEY,Vector#(WINDOWSIZEX,UInt#(8)))) windowData <- imageReader.getWindow();
+        Bit#(AXICONFIGDATAWIDTH) validSpan = tpl_1(windowData);
+        Vector#(WINDOWSIZEY,Vector#(WINDOWSIZEX,UInt#(8))) windowImg = tpl_3(windowData);
+        for(Integer x=0; x<valueOf(SHIFTX); x=x+1)
             begin
             Vector#(7,Vector#(7,UInt#(8))) stencil = newVector;
             for(Integer stencilX=0; stencilX<7; stencilX=stencilX+1)
                 begin
-                Integer stencilXWind = offsetX + stencilX;
+                Integer stencilXWind = x + stencilX;
                 for(Integer stencilY=0; stencilY<7; stencilY=stencilY+1)
-                    stencil[stencilY][stencilX] = unpack(_window[stencilY][stencilXWind]);
+                    stencil[stencilY][stencilX] = windowImg[stencilY][stencilXWind];
                 end
-            filterCores[offsetX].insertStencil(stencil);
+            if(validSpan < (fromInteger(x)+7))
+                filterCores[x].insertStencil(tuple2(stencil,True));
+            else
+                filterCores[x].insertStencil(tuple2(stencil,False));
             end        
     endrule
     
     rule extractStencils;
-        Vector#(FILTEREDWIDTH,Bit#(8)) filteredValues = newVector;
-        for(Integer offsetX=0; offsetX<valueOf(FILTEREDDATAWIDTH)/8; offsetX=offsetX+1)
+        Vector#(SHIFTX,UInt#(8)) filteredValues = newVector;
+        Bit#(AXICONFIGDATAWIDTH) validSpan = fromInteger(valueOf(SHIFTX));
+        for(Integer x=0; x<valueOf(SHIFTX); x=x+1)
             begin
-            UInt#(8) oneFilteredPixel <- filterCores[offsetX].getGradMag();
-            filteredValues[offsetX] = pack(oneFilteredPixel);
+            Tuple2#(UInt#(8),Bool) oneFilteredPixel <- filterCores[x].getGradMag();
+            if(!tpl_2(oneFilteredPixel))
+                validSpan = min(fromInteger(x),validSpan);
+            filteredValues[x] = tpl_1(oneFilteredPixel);
             end
-        writer.setWindow(filteredValues);
-    endrule
-    
-    rule finishExec(topLevelStatus==Execution && writer.done());
-        topLevelStatus <= Configuration;
+        imageWriter.setWindow(tuple2(validSpan,filteredValues));
     endrule
 
 /*************************************** Image Transfer************************************************/    
     interface axiC_rd  = axiConfigSlave.s_rd;
     interface axiC_wr  = axiConfigSlave.s_wr;
     
-    interface axiD_rd = reader.axi4Fab;
-    interface axiD_wr = writer.axi4Fab;
+    interface axiD_rd = imageReader.axi4Fab;
+    interface axiD_wr = imageWriter.axi4Fab;
 endmodule
 
 endpackage

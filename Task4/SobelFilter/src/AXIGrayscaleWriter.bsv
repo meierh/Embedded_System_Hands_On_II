@@ -17,156 +17,117 @@ typedef enum {
     } AXIBurstPhase deriving (Bits,Eq);
 
 (* always_ready, always_enabled *)
-interface AXIGrayscaleWriter#(numeric type addrwidth, numeric type datawidth,
-                             numeric type windowsizeX, numeric type mimoInOutMax,
-                             numeric type mimoLen);
-    method ActionValue#(Bool) configure (Bit#(addrwidth) _outputAddress, Bit#(addrwidth) _resolutionX, Bit#(addrwidth) _resolutionY);
-    method Action setWindow(Tuple2#(Bit#(addrwidth),Vector#(windowsizeX,UInt#(8))) window);
+interface AXIGrayscaleWriter#(numeric type addrwidth, numeric type datawidth, numeric type filterwidth, numeric type maxBurstLen);
+    method Action configure (Bit#(addrwidth) _outputAddress, Bit#(addrwidth) _numberChunks);
+    method Action setWindow(Vector#(filterwidth,Bit#(8)) _window);
+    method Bool done();
     interface AXI4_Master_Wr_Fab#(addrwidth,datawidth,1,0) axi4Fab;
 endinterface
 
-module mkAXIGrayscaleWriter(AXIGrayscaleWriter#(addrwidth,datawidth,windowsizeX,mimoInOutMax,mimoLen))
-                                provisos(Max#(addrwidth,8,addrwidth), // 8 <= addrwidth
-                                         Div#(datawidth,8,pixelsPerBeat),
-                                         Add#(2, c__, TMul#(pixelsPerBeat, mimoLen)),
-                                         Add#(d__, TMul#(8, mimoInOutMax), TMul#(8, TMul#(pixelsPerBeat, mimoLen))),
-                                         Add#(e__, mimoInOutMax, TMul#(pixelsPerBeat, mimoLen)),
-                                         Add#(f__, 8, datawidth),
-                                         Mul#(pixelsPerBeat,8,datawidth), // datawidth multiple of 8
-                                         Log#(pixelsPerBeat,4), // datawidth fixed to 128
-                                         Add#(a__, 8, addrwidth),
-                                         Add#(b__,TLog#(TAdd#(mimoInOutMax,1)),addrwidth),
-                                         Max#(mimoInOutMax,windowsizeX,mimoInOutMax), // windowsizeX <= mimoInOutMax
-                                         Max#(mimoInOutMax,16,mimoInOutMax)); // windowsizeX <= mimoInOutMax   
+module mkAXIGrayscaleWriter(AXIGrayscaleWriter#(addrwidth,datawidth,filterwidth,maxBurstLen))
+                                            provisos(Add#(a__, 8, addrwidth),
+                                                     Add#(b__, TLog#(TAdd#(TDiv#(datawidth, 8), 1)), addrwidth),
+                                                     Add#(c__, 8, datawidth),
+                                                     Add#(2, d__, maxBurstLen),
+                                                     Add#(e__, filterwidth, maxBurstLen),
+                                                     Add#(f__, TDiv#(datawidth, 8), maxBurstLen),
+                                                     Add#(g__, TMul#(8, TDiv#(datawidth, 8)), TMul#(8, maxBurstLen)),
+                                                     Log#(TAdd#(TDiv#(datawidth, 8), 1), TLog#(TAdd#(filterwidth, 1))));
 
 // Configuration registers
     Reg#(Bit#(addrwidth)) outputImageAddress <- mkReg(0);
+    /*
     Reg#(Bit#(addrwidth)) resolutionX <- mkReg(0);
     Reg#(Bit#(addrwidth)) resolutionY <- mkReg(0);
-    Reg#(Bit#(addrwidth)) imageSize <- mkReg(0);
+    */
+    Reg#(Bit#(addrwidth)) chunkNumber <- mkReg(0);
     Reg#(Bool) validConfig <- mkReg(False);
     
-    MIMOConfiguration cfg;
-    cfg.unguarded = False;
-    cfg.bram_based = True;
-    MIMO#(mimoInOutMax,mimoInOutMax,TMul#(pixelsPerBeat,mimoLen),UInt#(8)) outputBuffer <- mkMIMO(cfg);
-
 // AXI connect
     AXI4_Master_Wr#(addrwidth,datawidth,1,0) axiDataWr <- mkAXI4_Master_Wr(1,1,1,False);
     
+    MIMOConfiguration cfg;
+    cfg.unguarded = True;
+    cfg.bram_based = True;
+    MIMO#(filterwidth,TDiv#(datawidth,8),maxBurstLen,Bit#(8)) outputMIMO <- mkMIMO(cfg);
+    
+    Reg#(Bit#(addrwidth)) chunkCounter <- mkReg(0);
     Reg#(Bit#(addrwidth)) addrOffset <- mkReg(0);
     Reg#(AXIBurstPhase) axiSendPhase <- mkReg(Request);
+    Reg#(Bit#(addrwidth)) announedChunks <- mkReg(0);
+    Reg#(Bit#(addrwidth)) announedChunksCounter <- mkReg(0);
     
-    Reg#(Bool) lastBurst <- mkReg(False);
-    Reg#(Bit#(addrwidth)) requestedBeats <- mkReg(0);
-    Reg#(Bit#(addrwidth)) beatCounter <- mkReg(0);
-    Reg#(Bool) incompleteLastBeat <- mkReg(False);
-    Reg#(Bit#(addrwidth)) lastBeatPixelOverhang <- mkReg(0);
+    Bit#(addrwidth) deqCountBit = fromInteger(valueOf(datawidth)/8);
+    UInt#(addrwidth) deqCountBitUInt = unpack(deqCountBit);
+    LUInt#(TDiv#(datawidth,8)) deqCountBitLUInt = truncate(deqCountBitUInt);
     
-    rule sendRequest (axiSendPhase==Request);
-        if(addrOffset < imageSize)
+    Bit#(addrwidth) enqCountBit = fromInteger(valueOf(filterwidth));
+    UInt#(addrwidth) enqCountBitUInt = unpack(deqCountBit);
+    LUInt#(TDiv#(datawidth,8)) enqCountBitLUInt = truncate(deqCountBitUInt);
+    
+    rule announceData (validConfig && axiSendPhase==Request && outputMIMO.deqReadyN(deqCountBitLUInt));
+        if(chunkCounter < chunkNumber)
             begin
-            Bit#(addrwidth) writeAddress = imageSize + addrOffset;
-            Bit#(addrwidth) remainingPixels = imageSize - addrOffset;
-            Bit#(addrwidth) remainingBeats = remainingPixels >> 4;
-            Bool _lastBurst = False;
-            Bool _incompleteLastBeat = False;
-            Bit#(addrwidth) _lastBeatPixelOverhang = 0;
-            Bit#(addrwidth) _requestedBeats = remainingBeats;
-            if(remainingBeats<=256)
-                begin
-                _lastBurst = True;
-                _lastBeatPixelOverhang = remainingBeats*16-remainingPixels;
-                if(_lastBeatPixelOverhang!=0)
-                    _incompleteLastBeat = False;
-                end
-            else
-                _requestedBeats = 256;
-            Bit#(addrwidth) _requestedBeats_Min1 = _requestedBeats-1;
-            Bit#(8) _requestedBeats_Min1_Trunc = truncate(_requestedBeats_Min1);
-            axi4_write_addr(axiDataWr,writeAddress,unpack(_requestedBeats_Min1_Trunc));
+            Bit#(addrwidth) announceAddr = outputImageAddress + addrOffset;
+            Bit#(addrwidth) _remainigChunks = chunkNumber - chunkCounter;
+            Bit#(addrwidth) _announcedChunks = fromInteger(valueOf(maxBurstLen));
+            if(_remainigChunks < _announcedChunks)
+                _announcedChunks = _remainigChunks;
+            announedChunks <= _announcedChunks;
+            Bit#(addrwidth) _announcedChunks_Min1 = _announcedChunks-1;
+            Bit#(8) _announcedChunks_Min1_Trunc = truncate(_announcedChunks_Min1);
+            axi4_write_addr(axiDataWr,announceAddr,unpack(_announcedChunks_Min1_Trunc));
             axiSendPhase <= Send;
-            lastBurst <= _lastBurst;
-            requestedBeats <= _requestedBeats;
-            beatCounter <= 0;
-            incompleteLastBeat <= _incompleteLastBeat;
-            lastBeatPixelOverhang <= _lastBeatPixelOverhang;
+            chunkCounter <= chunkCounter + _announcedChunks;
+            addrOffset <= addrOffset + _announcedChunks * 16;
+            announedChunksCounter <= 0;
             end
         else
             validConfig <= False;
     endrule
     
-    rule sendAction(axiSendPhase==Send && outputBuffer.deqReady());
-        if(beatCounter < requestedBeats-1)
+    rule readData (axiSendPhase==Send && outputMIMO.deqReadyN(deqCountBitLUInt));
+        if(announedChunksCounter < announedChunks)
             begin
-            UInt#(addrwidth) testDeqSizeUInt = fromInteger(valueOf(datawidth)/8);
-            LUInt#(mimoInOutMax) testDeqSizeLUInt = truncate(testDeqSizeUInt);            if(outputBuffer.deqReadyN(testDeqSizeLUInt))
+            Vector#(TDiv#(datawidth,8),Bit#(8)) oneChunk = outputMIMO.first;
+            /*
+            Bit#(addrwidth) deqCountBit = fromInteger(valueOf(datawidth)/8);
+            UInt#(addrwidth) deqCountBitUInt = unpack(deqCountBit);
+            LUInt#(TDiv#(datawidth,8)) deqCountBitLUInt = truncate(deqCountBitUInt);
+            */
+            outputMIMO.deq(deqCountBitLUInt);
+                    
+            Bit#(datawidth) writeData = 0;
+            Integer pixelBitStart = valueOf(datawidth)-1;
+            Integer enableBitStart = valueOf(datawidth)/8-1;
+            Bit#(TDiv#(datawidth, 8)) byte_enable = 0;
+            for(Integer i=0; i<valueOf(datawidth)/8; i=i+1)
                 begin
-                Vector#(mimoInOutMax, UInt#(8)) extractPixels = outputBuffer.first;
-                outputBuffer.deq(testDeqSizeLUInt);
-                addrOffset <= addrOffset + fromInteger(valueOf(datawidth)/8);
-                Bit#(datawidth) writeData;
-                Integer pixelBitStart = valueOf(datawidth)-1;
-                for(Integer i=0; i<valueOf(datawidth)/8; i=i+1)
-                    begin
-                    writeData[pixelBitStart:pixelBitStart-7] = pack(extractPixels[i]);
-                    pixelBitStart = pixelBitStart - 8;
-                    end
-                Bit#(TDiv#(datawidth, 8)) byte_enable = 0;
-                byte_enable = byte_enable-1;
-                axi4_write_data(axiDataWr,writeData,byte_enable,False);
+                writeData[pixelBitStart:pixelBitStart-7] = oneChunk[i];
+                pixelBitStart = pixelBitStart - 8;
                 end
-            end
-        else if(beatCounter == requestedBeats-1)
-            begin
-            Bit#(addrwidth) validPixels;
-            if(incompleteLastBeat)
-                validPixels = lastBeatPixelOverhang;
-            else
-                validPixels = fromInteger(valueOf(datawidth)/8);
-            UInt#(addrwidth) testDeqSizeUInt = unpack(validPixels);
-            LUInt#(mimoInOutMax) testDeqSizeLUInt = truncate(testDeqSizeUInt);  
-            if(outputBuffer.deqReadyN(testDeqSizeLUInt))
-                begin
-                Vector#(mimoInOutMax, UInt#(8)) extractPixels = outputBuffer.first;
-                outputBuffer.deq(testDeqSizeLUInt);
-                addrOffset <= addrOffset + validPixels;
-                Bit#(datawidth) writeData;
-                Bit#(TDiv#(datawidth, 8)) byte_enable = 0;
-                Integer pixelBitStart = valueOf(datawidth)-1;
-                Integer enableBitStart = (valueOf(datawidth)/8)-1;
-                for(Integer i=0; fromInteger(i)<validPixels; i=i+1)
-                    begin
-                    byte_enable[enableBitStart] = 1'b1;
-                    writeData[pixelBitStart:pixelBitStart-7] = pack(extractPixels[i]);
-                    pixelBitStart = pixelBitStart - 8;
-                    enableBitStart = enableBitStart - 1;
-                    end
-                axi4_write_data(axiDataWr,writeData,byte_enable,False);
-                end
+            axi4_write_data(axiDataWr,writeData,byte_enable,False);
+            announedChunksCounter <= announedChunksCounter + 1;
             end
         else
+            begin
+            announedChunksCounter <= 0;
             axiSendPhase <= Request;
+            end
     endrule
-    
-    method Action setWindow(Tuple2#(Bit#(addrwidth),Vector#(windowsizeX,UInt#(8))) window);
-        Bit#(addrwidth) windowSize = tpl_1(window);
-        Vector#(windowsizeX,UInt#(8)) windowVec = tpl_2(window);
-        Vector#(mimoInOutMax,UInt#(8)) enqVector = newVector;
-        for(Integer i=0; i<valueOf(mimoInOutMax); i=i+1)
-            if(fromInteger(i)<windowSize)
-                enqVector[i] = windowVec[i];
-        UInt#(addrwidth) windowSizeUInt = unpack(windowSize);
-        LUInt#(mimoInOutMax) windowSizeLUInt = truncate(windowSizeUInt);
-        outputBuffer.enq(windowSizeLUInt,enqVector);
-    endmethod
-
-    method ActionValue#(Bool) configure (Bit#(addrwidth) _outputAddress, Bit#(addrwidth) _resolutionX, Bit#(addrwidth) _resolutionY) if(!validConfig);
+       
+    method Action configure (Bit#(addrwidth) _outputAddress, Bit#(addrwidth) _numberChunks) if(!validConfig);
         outputImageAddress <= _outputAddress;
-        resolutionX <= _resolutionX;
-        resolutionY <= _resolutionY;
-        imageSize <= _resolutionX * _resolutionY;
-        return True;
+        chunkNumber <= _numberChunks;
+        validConfig <= True;
+    endmethod
+    
+    method Action setWindow(Vector#(filterwidth,Bit#(8)) _window) if(outputMIMO.enqReadyN(enqCountBitLUInt));    
+        outputMIMO.enq(enqCountBitLUInt,_window);
+    endmethod
+    
+    method Bool done();
+        return !validConfig && (axiSendPhase==Request);
     endmethod
     
     interface axi4Fab = axiDataWr.fab;
