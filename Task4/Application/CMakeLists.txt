@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 2.8)
+project( SobelFilter )
+find_package( OpenCV REQUIRED )
+include_directories( ${OpenCV_INCLUDE_DIRS} )
+add_executable( Application main.cpp SobelFilter.cpp)
+target_link_libraries( Application ${OpenCV_LIBS} )

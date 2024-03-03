@@ -1,0 +1,11 @@
+#include <linux/ioctl.h>
+#define IOC_MAGIC 'k'
+#define IOCTL_DCTSTATUS _IOR(IOC_MAGIC,'s',uint64_t*)
+#define IOCTL_DCTINPUTSIZE _IOW(IOC_MAGIC,'I',uint64_t*)
+#define IOCTL_DCTINPUTDATA _IOW(IOC_MAGIC,'i',uint8_t*)
+#define IOCTL_DCTOUTPUTSIZE _IOW(IOC_MAGIC,'O',uint64_t*)
+#define IOCTL_DCTOUTPUTDATA _IOR(IOC_MAGIC,'o',uint8_t*)
+#define IOCTL_DCTDMAMALLOC _IO(IOC_MAGIC,'m')
+#define IOCTL_DCTDMAFREE _IO(IOC_MAGIC,'f')
+#define IOCTL_DCTNUMBLOCKS _IOW(IOC_MAGIC,'n',uint64_t*)
+#define IOCTL_DCTEXECCMD _IO(IOC_MAGIC,'e')
