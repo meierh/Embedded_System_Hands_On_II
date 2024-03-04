@@ -10,10 +10,10 @@ import AXIDCTBlockWriter :: *;
 import DCTOperator :: *;
 
 typedef 8 AXICONFIGADDRWIDTH;
-typedef 64 AXICONFIGDATAWIDTH;
+typedef 32 AXICONFIGDATAWIDTH;
 typedef 128 AXIIMAGEDATAWIDTH;
 
-typedef 1 SIMULTBLOCKS;
+typedef 3 SIMULTBLOCKS;
 
 typedef enum {
     Configuration = 1'b0,
@@ -44,6 +44,7 @@ module mkDCT(DCT);
     RegisterOperator#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) readStatus;
     function ActionValue#(Bit#(AXICONFIGDATAWIDTH)) readStat (AXI4_Lite_Prot p);
               actionvalue
+                    //$display("readStat: %d",topLevelStatus);
                     return extend(pack(topLevelStatus));
                endactionvalue
     endfunction : readStat
@@ -57,6 +58,7 @@ module mkDCT(DCT);
     function Action writeInputAddr (Bit#(AXICONFIGDATAWIDTH) d, Bit#(TDiv#(AXICONFIGDATAWIDTH, 8)) s, AXI4_Lite_Prot p);
                 action
                     inputImageAddress <= unpack(d);
+                    //$display("inputImageAddress: %d",d);
                 endaction
     endfunction : writeInputAddr
     WriteOperation#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeInputAddrStruct;
@@ -69,6 +71,7 @@ module mkDCT(DCT);
     function Action writeOutputAddr (Bit#(AXICONFIGDATAWIDTH) d, Bit#(TDiv#(AXICONFIGDATAWIDTH, 8)) s, AXI4_Lite_Prot p);
                 action
                     outputImageAddress <= unpack(d);
+                    //$display("outputImageAddress: %d",d);
                 endaction
     endfunction : writeOutputAddr
     WriteOperation#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeOutputAddrStruct;
@@ -81,6 +84,7 @@ module mkDCT(DCT);
     function Action writeNumberBlocksFunc (Bit#(AXICONFIGDATAWIDTH) d, Bit#(TDiv#(AXICONFIGDATAWIDTH, 8)) s, AXI4_Lite_Prot p);
                 action
                     numberBlocks <= d;
+                    //$display("numberBlocks: %d",d);
                 endaction
     endfunction : writeNumberBlocksFunc
     WriteOperation#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeNumberBlocksStruct;
@@ -96,6 +100,7 @@ module mkDCT(DCT);
                         executeCmd <= True;
                     else
                         executeCmd <= False;
+                    //$display("topLevelStatus: %d",topLevelStatus);
                 endaction
     endfunction : writeExecuteCmd
     WriteOperation#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeExecuteCmdStruct;
@@ -103,15 +108,18 @@ module mkDCT(DCT);
     writeExecuteCommand = tagged Write writeExecuteCmdStruct;
     configurationOperations = List::cons(writeExecuteCommand,configurationOperations);
     
-
+    GenericAxi4LiteSlave#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) configAXISlave <- mkGenericAxi4LiteSlave(configurationOperations,1,1);
+    
 /************************************** Execution *************************************************/
     AXIDCTBlockReader#(AXICONFIGDATAWIDTH,SIMULTBLOCKS) reader <- mkAXIDCTBlockReader();
     AXIDCTBlockWriter#(AXICONFIGDATAWIDTH,SIMULTBLOCKS) writer <- mkAXIDCTBlockWriter();
     Vector#(SIMULTBLOCKS,DCTOperator) dctOperators = newVector;
     for(Integer i=0; i<valueOf(SIMULTBLOCKS); i=i+1)
         dctOperators[i] <- mkDCTOperator();
-    
+        //dctOperators[i] <- mkDCTPassthrough();
+        
     rule startComputation (topLevelStatus==Configuration && executeCmd);
+        $display("Start Computation numberBlocks:%d, inputImageAddress:%d outputImageAddress:%d topLevelStatus:%d",numberBlocks,inputImageAddress,outputImageAddress,topLevelStatus);
         executeCmd <= False;
         topLevelStatus <= Execution;
         reader.configure(inputImageAddress,numberBlocks);
@@ -119,6 +127,7 @@ module mkDCT(DCT);
     endrule
     
     rule insertData(topLevelStatus==Execution);
+        //$display("Insert Multi Block");
         Vector#(SIMULTBLOCKS,Vector#(8,Vector#(8,Bit#(8)))) multiBlocks <- reader.getMultiBlock();
         Vector#(SIMULTBLOCKS,Vector#(8,Vector#(8,UInt#(8)))) multiBlocksInt = newVector;
         for(Integer i=0; i<valueOf(SIMULTBLOCKS); i=i+1)
@@ -130,6 +139,7 @@ module mkDCT(DCT);
     endrule
     
     rule extractData(topLevelStatus==Execution);
+        //$display("Extract Multi Block");
         Vector#(SIMULTBLOCKS,Vector#(8,Vector#(8,Int#(16)))) multiBlocksInt = newVector;
         for(Integer i=0; i<valueOf(SIMULTBLOCKS); i=i+1)
             multiBlocksInt[i] <- dctOperators[i].getBlock();        
@@ -143,8 +153,13 @@ module mkDCT(DCT);
     
     rule finishExec(topLevelStatus==Execution && writer.done());
         topLevelStatus <= Configuration;
+        $display("---------------------------------Completed DCT----------------------------------");
     endrule
     
+/*********************************** Interface definition********************************************/
+    interface axiC_rd  = configAXISlave.s_rd;
+    interface axiC_wr  = configAXISlave.s_wr;    
+
     interface axiD_rd = reader.axi4Fab;
     interface axiD_wr = writer.axi4Fab;
 endmodule

@@ -92,11 +92,11 @@ def emulDCTIP(img,bitwidth):
     #print("transpose(cosBlock):",np.transpose(cosBlock))
     dct = np.matmul(np.transpose(cosBlock),dct)
     dct = np.floor(dct)
-    print("DCT3:",dct)
+    #print("DCT3:",dct)
     maxVal = max(maxVal,dct.all())
     dct = dct / (2**bitwidth)
     dct = np.floor(dct)
-    print("DCT4:",dct)
+    #print("DCT4:",dct)
     maxVal = max(maxVal,dct.all())
     for v in range(8):
         for u in range(8):
@@ -105,7 +105,7 @@ def emulDCTIP(img,bitwidth):
             dct[v][u] = np.floor(dct[v][u])
             dct[v][u] = dct[v][u] / (2**bitwidth)
     dct = np.floor(dct)
-    print("DCT5:",dct)
+    #print("DCT5:",dct)
     for v in range(8):
         for u in range(8):
             maxVal = max(maxVal,dct[v][u])
@@ -113,7 +113,7 @@ def emulDCTIP(img,bitwidth):
             dct[v][u] = np.floor(dct[v][u])
             dct[v][u] = dct[v][u] / (2**bitwidth)
     dct = np.floor(dct)
-    print("DCT6:",dct)
+    #print("DCT6:",dct)
     for v in range(8):
         for u in range(8):
             maxVal = max(maxVal,dct[v][u])
@@ -149,12 +149,14 @@ def linearImage(k=1):
             img[y][x] = np.clip(img[y][x],0,255)
     return img
 
+'''
 img  = imageBlock()
 print(img)
 res = emulDCTIP(img,16)
 print("Hardware Solution:",res)
 res = rawDCT(C,img,computeCosBlock())
 print("Raw Solution:",res)
+'''
 
 '''
 print(computeIntCosBlock(16))
@@ -179,3 +181,33 @@ for bitwidth in range(20):
     errorSum /= 100
     print("Bitwidth: ",bitwidth,":  ",errorSum,"  ",error)
 '''
+
+cosBlock = computeCosBlock()
+
+def visualizeAsUnsiged(image):
+    print(type(image))
+    for i in range(len(image)):
+        for j in range(len(image[i])):
+            if(image[i][j]<0):
+                image[i][j] = 2**16 + image[i][j]
+    return image
+
+def multiBlockImage(num=8): 
+    imageX = 8
+    imageY = 8
+    pad = 0
+    counter = 32
+    blockList = []
+    for blockId in range(num):
+        image = np.zeros((imageY+2*pad,imageX+2*pad),dtype=np.uint8)
+        for y in range(imageY):
+            for x in range(imageX):
+                image[y+pad,x+pad] = counter
+                counter = counter + 1
+        blockList.append(image)
+    return blockList
+
+blocks = multiBlockImage()
+for i in range(len(blocks)):
+    unsignBlock = visualizeAsUnsiged(rawDCT(C,blocks[i],cosBlock)[0])
+    print(unsignBlock)

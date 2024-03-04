@@ -88,7 +88,7 @@ module mkDCTOperator(DCTOperator);
     SystolicArray#(FIXEDWIDTH) matrixMulti_Mod1 <- mkSystolicArray;
     
     rule matrixMult_S_Cos;
-        $display("Compute s * Cos",$time);
+        //$display("Compute s * Cos",$time);
         BLOCK oneBlock = imageBlock.first;
         imageBlock.deq;
         Vector#(8,Vector#(8,Int#(FIXEDWIDTH))) syx = newVector;
@@ -99,7 +99,7 @@ module mkDCTOperator(DCTOperator);
                 Bit#(FIXEDWIDTH) lbPixel = extend(bPixel);
                 syx[y][x] = unpack(lbPixel);
                 end
-        printMatrix(syx);
+        //printMatrix(syx);
         Vector#(8,Vector#(8,Int#(FIXEDWIDTH))) cosyv = readCos();
         matrixMulti_Mod1.setMatrix(syx,cosyv);
     endrule
@@ -107,7 +107,7 @@ module mkDCTOperator(DCTOperator);
     SystolicArray#(FIXEDWIDTH) matrixMulti_Mod2 <- mkSystolicArray;
     
     rule matrixMult_Cos_SCos;
-        $display("Compute Cos * s * Cos",$time);
+        //$display("Compute Cos * s * Cos",$time);
         Vector#(8,Vector#(8,Int#(FIXEDWIDTH))) sCos <- matrixMulti_Mod1.getResult();
         sCos = rShift(sCos,valueOf(NONFRACTION));
         //printMatrix(sCos);
@@ -120,23 +120,23 @@ module mkDCTOperator(DCTOperator);
     FIFO#(Vector#(8,Vector#(8,Int#(FIXEDWIDTH)))) dctBlock <- mkFIFO;
     
     rule normalizeDCT;
-        $display("Compute CuCv * Cos * s * Cos",$time);
+        //$display("Compute CuCv * Cos * s * Cos",$time);
         Vector#(8,Vector#(8,Int#(FIXEDWIDTH))) cosSCos <- matrixMulti_Mod2.getResult();
-        printMatrix(cosSCos);
+        //printMatrix(cosSCos);
         cosSCos = rShift(cosSCos,valueOf(NONFRACTION));
-        printMatrix(cosSCos);
+        //printMatrix(cosSCos);
         for(Integer u=0; u<8; u=u+1)
             for(Integer v=0; v<8; v=v+1)
                 cosSCos[v][u] = c[v]*cosSCos[v][u];
         cosSCos = rShift(cosSCos,valueOf(NONFRACTION));
-        printMatrix(cosSCos);
+        //printMatrix(cosSCos);
         for(Integer u=0; u<8; u=u+1)
             for(Integer v=0; v<8; v=v+1)
                 cosSCos[v][u] = c[u]*cosSCos[v][u];
         cosSCos = rShift(cosSCos,valueOf(NONFRACTION));
-        printMatrix(cosSCos);
+        //printMatrix(cosSCos);
         cosSCos = rShift(cosSCos,2);
-        printMatrix(cosSCos);
+        //printMatrix(cosSCos);
         dctBlock.enq(cosSCos);
     endrule
    
@@ -147,7 +147,7 @@ module mkDCTOperator(DCTOperator);
     
     method ActionValue#(Vector#(8,Vector#(8,Int#(16)))) getBlock ();
         Vector#(8,Vector#(8,Int#(FIXEDWIDTH))) bl = dctBlock.first;
-        printMatrix(bl);
+        //printMatrix(bl);
         Vector#(8,Vector#(8,Int#(16))) bl_trunc = newVector;
         for(Integer u=0; u<8; u=u+1)
             for(Integer v=0; v<8; v=v+1)
@@ -160,7 +160,7 @@ module mkDCTOperator(DCTOperator);
                 bl_trunc[u][v] = bl_Int_sm;
                 end
         dctBlock.deq;
-        printMatrix_16(bl_trunc);
+        //printMatrix_16(bl_trunc);
         return bl_trunc;
     endmethod
     

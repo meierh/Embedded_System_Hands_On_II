@@ -17,11 +17,11 @@ else:
 
 image = None
 if(imagePath is None):
-    imageX = 10
-    imageY = 21
-    pad = 3
+    imageX = 8
+    imageY = 8*8
+    pad = 0
     image = np.zeros((imageY+2*pad,imageX+2*pad),dtype=np.uint8)
-    counter = 0
+    counter = 32
     for y in range(imageY):
         for x in range(imageX):
             image[y+pad,x+pad] = counter
@@ -38,7 +38,7 @@ if(imagePath is None):
     flatImageChunks = split_given_size(flatImage,16)
     print(flatImageChunks)
             
-    with open('SobelFilter/build/hexImage.hex', 'w') as f:
+    with open('DCT/build/hexImage.hex', 'w') as f:
         for line in flatImageChunks:
             for byteInd in range(len(line)):
                 f.write(f"{line[byteInd]:02X}")

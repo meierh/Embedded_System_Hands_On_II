@@ -13,7 +13,7 @@ import SobelOperator :: * ;
 
 // must be equal to AXICONFIGDATAWIDTH
 typedef 8 AXICONFIGADDRWIDTH;
-typedef 64 AXICONFIGDATAWIDTH;
+typedef 32 AXICONFIGDATAWIDTH;
 
 typedef 128 AXIIMAGEDATAWIDTH;
 typedef 16 AXIIMAGEDATALEN;
@@ -21,7 +21,7 @@ typedef 16 AXIIMAGEDATALEN;
 typedef 80 FILTEREDDATAWIDTH;
 typedef 10 FILTEREDWIDTH;
 
-typedef 256 MAXAXIBURSTLEN;
+typedef 16 MAXAXIBURSTLEN;
 
 //(* always_ready, always_enabled *)
 interface SobelFilter;
@@ -33,9 +33,7 @@ interface SobelFilter;
     (*prefix = "AXI_Image"*) interface AXI4_Master_Wr_Fab#(AXICONFIGDATAWIDTH,AXIIMAGEDATAWIDTH,1,0) axiD_wr;
 endinterface
 
-module mkSobelFilter(SobelFilter) 
-                    provisos(Log#(17, 7),
-                             Log#(17, 4));
+module mkSobelFilter(SobelFilter);
 
 /******************************* Configuration Registers **********************************************/
     Reg#(Bit#(AXICONFIGDATAWIDTH)) inputImageAddress <- mkReg(0);
@@ -85,7 +83,7 @@ module mkSobelFilter(SobelFilter)
     writeOutputAddress = tagged Write writeOutputAddrStruct;
     configurationOperations = List::cons(writeOutputAddress,configurationOperations);
     
-// Write resolutionX command operation
+// Write chunksCountX command operation
     RegisterOperator#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeChunksCountX;    
     function Action writeChunksCountXSize (Bit#(AXICONFIGDATAWIDTH) d, Bit#(TDiv#(AXICONFIGDATAWIDTH, 8)) s, AXI4_Lite_Prot p);
                 action
@@ -157,14 +155,16 @@ module mkSobelFilter(SobelFilter)
         filterCores[x] <- mkSobelPassthrough();
         
     rule startComputation (topLevelStatus==Configuration && executeCmd);
+        $display("Start Computation chunksCountX:%d, resolutionY:%d inputImageAddress:%d outputImageAddress:%d topLevelStatus:%d",chunksCountX,resolutionY,inputImageAddress,outputImageAddress,topLevelStatus);
         reader.configure(inputImageAddress,chunksCountX,resolutionY);
-        Bit#(AXICONFIGDATAWIDTH) numberChunks = chunksCountX*resolutionY;
+        Bit#(AXICONFIGDATAWIDTH) numberChunks = chunksCountX*(resolutionY-6);
         writer.configure(outputImageAddress,numberChunks);
         topLevelStatus <= Execution;
         executeCmd <= False;
     endrule
         
     rule insertStencils;
+        //$display("Insert stencil");
         Vector#(7,Vector#(AXIIMAGEDATALEN,Bit#(8))) _window <- reader.getWindow();
         for(Integer offsetX=0; offsetX<valueOf(FILTEREDDATAWIDTH)/8; offsetX=offsetX+1)
             begin
@@ -180,6 +180,7 @@ module mkSobelFilter(SobelFilter)
     endrule
     
     rule extractStencils;
+        //$display("Extract stencil");
         Vector#(FILTEREDWIDTH,Bit#(8)) filteredValues = newVector;
         for(Integer offsetX=0; offsetX<valueOf(FILTEREDDATAWIDTH)/8; offsetX=offsetX+1)
             begin
@@ -190,6 +191,7 @@ module mkSobelFilter(SobelFilter)
     endrule
     
     rule finishExec(topLevelStatus==Execution && writer.done());
+        $display("------------------------Sobel Done---------------------------");
         topLevelStatus <= Configuration;
     endrule
 

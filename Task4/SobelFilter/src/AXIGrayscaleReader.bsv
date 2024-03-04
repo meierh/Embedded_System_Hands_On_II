@@ -29,7 +29,7 @@ module mkAXIGrayscaleReader(AXIGrayscaleReader#(addrwidth,datawidth,maxBurstLen)
     Reg#(Bit#(addrwidth)) inputImageAddress <- mkReg(0);
     Reg#(Bit#(addrwidth)) chunksNumberX <- mkReg(0);
     Reg#(Bit#(addrwidth)) resolutionY <- mkReg(0);
-    Reg#(Bit#(addrwidth)) rowNumber <- mkReg(0);
+    //Reg#(Bit#(addrwidth)) rowNumber <- mkReg(0);
     Reg#(Bit#(addrwidth)) chunkNumber <- mkReg(0);
     Reg#(Bool) validConfig <- mkReg(False);
 
@@ -43,7 +43,7 @@ module mkAXIGrayscaleReader(AXIGrayscaleReader#(addrwidth,datawidth,maxBurstLen)
     Reg#(Bit#(addrwidth)) addrOffset <- mkReg(0);
     Reg#(AXIBurstStoragePhase) axiLoadPhase <- mkReg(Request);
 
-    rule requestData (validConfig && axiLoadPhase==Request && !chunkFIFO.notEmpty);
+    rule requestData (validConfig && axiLoadPhase==Request /*&& !chunkFIFO.notEmpty*/);
         if(chunkCounter < chunkNumber)
             begin
             Bit#(addrwidth) reqAddr = inputImageAddress + addrOffset;
@@ -54,12 +54,16 @@ module mkAXIGrayscaleReader(AXIGrayscaleReader#(addrwidth,datawidth,maxBurstLen)
             Bit#(addrwidth) _requestedChunks_Min1 = _requestedChunks-1;
             Bit#(8) _requestedChunks_Min1_Trunc = truncate(_requestedChunks_Min1);
             axi4_read_data(axiDataRd,reqAddr,unpack(_requestedChunks_Min1_Trunc));
+            $display("Request from %d with %d chunks of %d remaining",reqAddr,_requestedChunks,_remainigChunks);
             axiLoadPhase <= Read;
             chunkCounter <= chunkCounter + _requestedChunks;
             addrOffset <= addrOffset + _requestedChunks * 16;
             end
         else
+            begin
+            $display("Reader invalid");
             validConfig <= False;
+            end
     endrule
 
     Reg#(Bit#(addrwidth)) readRowCount <- mkReg(0);
@@ -70,7 +74,7 @@ module mkAXIGrayscaleReader(AXIGrayscaleReader#(addrwidth,datawidth,maxBurstLen)
         Bit#(datawidth) responseData  = readResponse.data;
         Bool responseLast = readResponse.last;
         Bool lastRow;
-        if(readRowCount == rowNumber-1)
+        if(readRowCount == resolutionY-1)
             begin
             lastRow = True;
             readRowCount <= 0;
@@ -89,6 +93,9 @@ module mkAXIGrayscaleReader(AXIGrayscaleReader#(addrwidth,datawidth,maxBurstLen)
             oneChunk[i] = responseData[pixelBitStart:pixelBitStart-7];
             pixelBitStart = pixelBitStart - 8;
             end
+        $display("In Chunk %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d last %b",oneChunk[0],oneChunk[1],oneChunk[2],oneChunk[3],oneChunk[4],oneChunk[5],oneChunk[6],oneChunk[7],oneChunk[8],oneChunk[9],oneChunk[10],oneChunk[11],oneChunk[12],oneChunk[13],oneChunk[14],oneChunk[15],lastRow);
+
+        chunkFIFO.enq(tuple2(oneChunk,lastRow));
 
         if(responseLast)
             axiLoadPhase <= Request;
@@ -138,10 +145,18 @@ module mkAXIGrayscaleReader(AXIGrayscaleReader#(addrwidth,datawidth,maxBurstLen)
         inputImageAddress <= _imageAddress;
         chunksNumberX <= _chunksNumberX;
         resolutionY <= _resolutionY;
-        rowNumber <= resolutionY;
+        //rowNumber <= resolutionY;
+        chunkNumber <= _chunksNumberX*_resolutionY;
         readRowCount <= 0;
         chunksCountX <= 0;
+        insertionRow <= 0;
+        chunkCounter <= 0;
+        axiLoadPhase <= Request;
+        addrOffset <= 0;
+        windowFIFO.clear;
         validConfig <= True;
+        chunkFIFO.clear;
+        $display("Configured Reader");
     endmethod
     
     interface axi4Fab = axiDataRd.fab;
