@@ -54,14 +54,14 @@ module mkAXIGrayscaleReader(AXIGrayscaleReader#(addrwidth,datawidth,maxBurstLen)
             Bit#(addrwidth) _requestedChunks_Min1 = _requestedChunks-1;
             Bit#(8) _requestedChunks_Min1_Trunc = truncate(_requestedChunks_Min1);
             axi4_read_data(axiDataRd,reqAddr,unpack(_requestedChunks_Min1_Trunc));
-            $display("Request from %d with %d chunks of %d remaining",reqAddr,_requestedChunks,_remainigChunks);
+            //$display("Request from %d with %d chunks of %d remaining",reqAddr,_requestedChunks,_remainigChunks);
             axiLoadPhase <= Read;
             chunkCounter <= chunkCounter + _requestedChunks;
             addrOffset <= addrOffset + _requestedChunks * 16;
             end
         else
             begin
-            $display("Reader invalid");
+            //$display("Reader invalid");
             validConfig <= False;
             end
     endrule
@@ -93,7 +93,7 @@ module mkAXIGrayscaleReader(AXIGrayscaleReader#(addrwidth,datawidth,maxBurstLen)
             oneChunk[i] = responseData[pixelBitStart:pixelBitStart-7];
             pixelBitStart = pixelBitStart - 8;
             end
-        $display("In Chunk %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d last %b",oneChunk[0],oneChunk[1],oneChunk[2],oneChunk[3],oneChunk[4],oneChunk[5],oneChunk[6],oneChunk[7],oneChunk[8],oneChunk[9],oneChunk[10],oneChunk[11],oneChunk[12],oneChunk[13],oneChunk[14],oneChunk[15],lastRow);
+        //$display("In Chunk %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d last %b",oneChunk[0],oneChunk[1],oneChunk[2],oneChunk[3],oneChunk[4],oneChunk[5],oneChunk[6],oneChunk[7],oneChunk[8],oneChunk[9],oneChunk[10],oneChunk[11],oneChunk[12],oneChunk[13],oneChunk[14],oneChunk[15],lastRow);
 
         chunkFIFO.enq(tuple2(oneChunk,lastRow));
 
@@ -156,7 +156,7 @@ module mkAXIGrayscaleReader(AXIGrayscaleReader#(addrwidth,datawidth,maxBurstLen)
         windowFIFO.clear;
         validConfig <= True;
         chunkFIFO.clear;
-        $display("Configured Reader");
+        //$display("Configured Reader");
     endmethod
     
     interface axi4Fab = axiDataRd.fab;

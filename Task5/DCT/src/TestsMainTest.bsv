@@ -10,6 +10,7 @@ package TestsMainTest;
     import AXI4_Types :: *;
     import AXI4_Lite_Master :: *;
     import AXI4_Lite_Types :: *;
+    import AXI4_Master :: * ;
     import Connectable :: *;
     import Vector :: *;
 
@@ -29,30 +30,31 @@ package TestsMainTest;
         mkConnection(configWrite.fab, dctCore.axiC_wr);
         mkConnection(configRead.fab, dctCore.axiC_rd);
 
+        AXI4_Master_Wr#(32,128,1,0) dummy <- mkAXI4_Master_Wr(1,1,1,False);
+
         //Data AXIs
         BRAM_Configure cfg = defaultValue;
         cfg.memorySize = 2048;
         cfg.loadFormat = tagged Hex "hexImage.hex";
         BRAM1PortBE #(Bit#(32), Bit#(128), TDiv#(128,8)) bram <- mkBRAM1ServerBE(cfg);
         BlueAXIBRAM#(32,128,1) memory <- mkBlueAXIBRAM(bram.portA);
-        mkConnection(memory.wr, dctCore.axiD_wr);
+        mkConnection(memory.wr, dummy.fab);
         mkConnection(memory.rd, dctCore.axiD_rd);
         
-        /*
         AXI4_Slave_Wr#(32,128,1,0) resultReceiver <- mkAXI4_Slave_Wr(1,1,1);
         mkConnection(resultReceiver.fab, dctCore.axiD_wr);
         Reg#(ResultReceiverStatus) resRecStat <- mkReg(ReqAddr);
         
         Reg#(UInt#(8)) burstLength <- mkRegU;
         Reg#(Bit#(32)) burstAddr <- mkRegU;
-        rule reqAddrRule;
+        rule reqAddrRule (resRecStat==ReqAddr);
             AXI4_Write_Rq_Addr#(32,1,0) reqA <- resultReceiver.request_addr.get();
             burstLength <= reqA.burst_length;
             burstAddr <= reqA.addr;
             resRecStat <= ReqData;
             $display("Receive Burst to addr:%d with len: %d",reqA.addr,reqA.burst_length);
         endrule
-        rule reqDataRule;
+        rule reqDataRule (resRecStat==ReqData);
             AXI4_Write_Rq_Data#(128,0) reqD <- resultReceiver.request_data.get();
             Bit#(128) reqData = reqD.data;
             Bool reqLast = reqD.last;
@@ -68,8 +70,6 @@ package TestsMainTest;
             if(reqLast==True)
                 resRecStat <= ReqAddr;
         endrule
-        */
-        
 
         Stmt s = {
             seq
@@ -126,7 +126,7 @@ package TestsMainTest;
                 endaction
                 
                 delay(10000);
-                $display("Next try");
+                //$display("Next try");
                 action
                     let reqC = AXI4_Lite_Read_Rq_Pkg {addr:8'b00000000, prot:UNPRIV_SECURE_DATA};
                     configRead.request.put(reqC);

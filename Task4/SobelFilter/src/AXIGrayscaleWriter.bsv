@@ -57,7 +57,7 @@ module mkAXIGrayscaleWriter(AXIGrayscaleWriter#(addrwidth,datawidth,filterwidth,
             Bit#(addrwidth) _announcedChunks_Min1 = _announcedChunks-1;
             Bit#(8) _announcedChunks_Min1_Trunc = truncate(_announcedChunks_Min1);
             axi4_write_addr(axiDataWr,announceAddr,unpack(_announcedChunks_Min1_Trunc));
-            $display("Announce from %d with %d chunks of %d remaining",announceAddr,_announcedChunks,_remainigChunks);
+            //$display("Announce from %d with %d chunks of %d remaining",announceAddr,_announcedChunks,_remainigChunks);
             axiSendPhase <= Send;
             chunkCounter <= chunkCounter + _announcedChunks;
             addrOffset <= addrOffset + _announcedChunks * 16;
@@ -66,12 +66,12 @@ module mkAXIGrayscaleWriter(AXIGrayscaleWriter#(addrwidth,datawidth,filterwidth,
         else
             begin
             validConfig <= False;
-            $display("Announcation done");
+            //$display("Announcation done");
             end
     endrule
     
     rule writeData (axiSendPhase==Send && announedChunksCounter < announedChunks);
-        $display("writeData announedChunksCounter %d, announedChunks %d, axiSendPhase %b",announedChunksCounter,announedChunks,axiSendPhase);
+        //$display("writeData announedChunksCounter %d, announedChunks %d, axiSendPhase %b",announedChunksCounter,announedChunks,axiSendPhase);
 
         Vector#(TDiv#(datawidth,8),Bit#(8)) oneChunk = windowFIFO.first;
         windowFIFO.deq;
@@ -91,19 +91,19 @@ module mkAXIGrayscaleWriter(AXIGrayscaleWriter#(addrwidth,datawidth,filterwidth,
             lastBeat = True;
             
         axi4_write_data(axiDataWr,writeData,byte_enable,lastBeat);
-        $display("Out Chunk %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d ",oneChunk[0],oneChunk[1],oneChunk[2],oneChunk[3],oneChunk[4],oneChunk[5],oneChunk[6],oneChunk[7],oneChunk[8],oneChunk[9],oneChunk[10],oneChunk[11],oneChunk[12],oneChunk[13],oneChunk[14],oneChunk[15]);
-        $display("announedChunksCounter %d, announedChunks %d, axiSendPhase %b byte_enable %d lastBeat %b",announedChunksCounter,announedChunks,axiSendPhase,byte_enable,lastBeat);
+        //$display("Out Chunk %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d ",oneChunk[0],oneChunk[1],oneChunk[2],oneChunk[3],oneChunk[4],oneChunk[5],oneChunk[6],oneChunk[7],oneChunk[8],oneChunk[9],oneChunk[10],oneChunk[11],oneChunk[12],oneChunk[13],oneChunk[14],oneChunk[15]);
+        //$display("announedChunksCounter %d, announedChunks %d, axiSendPhase %b byte_enable %d lastBeat %b",announedChunksCounter,announedChunks,axiSendPhase,byte_enable,lastBeat);
         announedChunksCounter <= announedChunksCounter + 1;
     endrule
     
     rule endWriteData (axiSendPhase==Send && announedChunksCounter >= announedChunks);
-        $display("Last Beat");
+        //$display("Last Beat");
         announedChunksCounter <= 0;
         axiSendPhase <= Request;
     endrule
        
     method Action configure (Bit#(addrwidth) _outputAddress, Bit#(addrwidth) _numberChunks) if(!validConfig);
-        $display("configure writer");
+        //$display("configure writer");
         outputImageAddress <= _outputAddress;
         chunkNumber <= _numberChunks;
         validConfig <= True;

@@ -21,7 +21,7 @@ endinterface
 module mkSobelOperator(SobelOperator);
 
 // Kernels 
-    // Bitpattern[Sign:1, Nonfraction:7, Fraction:14]
+    // Bitpattern[Sign:1, Nonfraction:7, Fraction:12]
     Int#(FIXEDWIDTH) fx3[7][7] =   {{0 ,0 ,   0, 0,    0, 0, 0},
                                     {0 ,0 ,   0, 0,    0, 0, 0},
                                     {0 ,0 , 512, 0, -512, 0, 0},
@@ -57,10 +57,6 @@ module mkSobelOperator(SobelOperator);
 
     rule multiply;
         Vector#(7,Vector#(7,Int#(FIXEDWIDTH))) _imageStencil = imageStencil.first;
-        $display("imageStencil:");
-        printStencil_20(_imageStencil);
-        $display("kernel:");
-        printStencil_20(kernel);
         imageStencil.deq;
         
         Vector#(7,Vector#(7,Int#(32))) extStencil = newVector;
@@ -71,14 +67,6 @@ module mkSobelOperator(SobelOperator);
                 extStencil[y][x] = signExtend(_imageStencil[y][x]);
                 extKernel[y][x] = signExtend(kernel[y][x]);
                 end
-        /*
-        $display("extStencil:");
-        printStencil_32(extStencil);
-        $display("extKernelX:");
-        printStencil_32(extKernelX);
-        $display("extKernelY:");
-        printStencil_32(extKernelY);
-        */
           
         Vector#(7,Vector#(7,Int#(32))) extMultX = newVector;
         Vector#(7,Vector#(7,Int#(32))) extMultY = newVector;
@@ -88,22 +76,6 @@ module mkSobelOperator(SobelOperator);
                 extMultX[y][x] = extStencil[y][x]*extKernel[y][x];
                 extMultY[y][x] = extStencil[y][x]*extKernel[x][y];
                 end
-            
-        /*
-        $display("extMultX:");
-        printStencil_32(extMultX);
-        $display("extMultY:");
-        printStencil_32(extMultY);
-        */
-        
-        /*
-        for(Integer y=0; y<7; y=y+1)
-            for(Integer x=0; x<7; x=x+1)
-                begin
-                extMultX[y][x] = extMultX[y][x] >> 12;
-                extMultY[y][x] = extMultY[y][x] >> 12;
-                end
-        */
                 
         Vector#(7,Vector#(7,Int#(FIXEDWIDTH))) _multipled_x = newVector;
         Vector#(7,Vector#(7,Int#(FIXEDWIDTH))) _multipled_y = newVector;
@@ -115,11 +87,6 @@ module mkSobelOperator(SobelOperator);
                 _multipled_x[y][x] = multX;
                 _multipled_y[y][x] = multY;
                 end
-        
-        $display("_multipled_x:");
-        printStencil_20(_multipled_x);
-        $display("_multipled_y:");
-        printStencil_20(_multipled_y);
                 
         multipled_x.enq(_multipled_x);
         multipled_y.enq(_multipled_y);
@@ -290,12 +257,12 @@ module mkSobelOperator(SobelOperator);
         if(extSobel<0)
             extSobel = -1*extSobel;
         Bit#(32) bSobel = pack(extSobel);
-        bSobel = bSobel >> 14;
+        bSobel = bSobel >> 12;
         Bit#(8) truncBSobel = truncate(bSobel);
         UInt#(8) _sobel = unpack(truncBSobel);
         sobel_full.enq(_sobel);
         
-        $display("sobel: %d",_sobel);
+        //$display("sobel: %d",_sobel);
     endrule
     
 // Interface methods

@@ -88,7 +88,7 @@ std::unique_ptr<Array2D<uchar>> cvGrayscaleToArray(const cv::Mat image)
 
 std::unique_ptr<cv::Mat> arrayToCvGrayscale(const Array2D<int16_t>& array)
 {
-    auto imagePtr = std::make_unique<cv::Mat>(array.getRows(),array.getCols(),CV_16U);
+    auto imagePtr = std::make_unique<cv::Mat>(array.getRows(),array.getCols(),CV_16S);
     cv::Mat& image = *imagePtr;
     for(uint row=0; row<image.rows; row++)
     {
@@ -136,6 +136,7 @@ void ImageBlocks<T>::reset(uint blockRows, uint blockCols)
 template<typename T>
 void ImageBlocks<T>::init(uint blockRows, uint blockCols)
 {
+    //std::cout<<"Init ImageBlocks: "<<blockRows<<" "<<blockCols<<std::endl;
     this->blockRows = blockRows;
     this->blockCols = blockCols;
     data.resize(blockCols*blockRows*64);
@@ -144,8 +145,12 @@ void ImageBlocks<T>::init(uint blockRows, uint blockCols)
 template<typename T>
 void ImageBlocks<T>::array2DToBlockData(const Array2D<T>& array, std::vector<T>& data)
 {
+    //std::cout<<"array2DToBlockData "<<array.getCols()<<" "<<array.getRows()<<" | "<<data.size()<<std::endl;
     if(data.size()!=array.getCols()*array.getRows())
         throw std::invalid_argument("Size mismatch!");
+    
+    //std::cout<<"Size ("<<blockRows<<","<<blockCols<<")"<<std::endl;
+    std::cout<<"array(0,0):"<<int(array(0,0))<<std::endl;
     
     uint insertIndex=0;
     for(uint blockColInd=0; blockColInd<blockCols; blockColInd++)
@@ -154,12 +159,16 @@ void ImageBlocks<T>::array2DToBlockData(const Array2D<T>& array, std::vector<T>&
         {
             uint blockOffsetCol = blockColInd*8;
             uint blockOffsetRow = blockRowInd*8;
+            
+            //std::cout<<"Block ("<<blockRowInd<<","<<blockColInd<<")"<<blockColInd*blockCols+blockRowInd<<" offset: ("<<blockOffsetRow<<","<<blockOffsetCol<<")"<<std::endl;
+            
             for(uint pxLocCol=0; pxLocCol<8; pxLocCol++)
             {
                 for(uint pxLocRow=0; pxLocRow<8; pxLocRow++)
                 {
                     uint col = blockOffsetCol+pxLocCol;
-                    uint row = blockOffsetCol+pxLocCol;
+                    uint row = blockOffsetRow+pxLocRow;
+                    //std::cout<<"("<<row<<","<<col<<") -> "<<insertIndex<<std::endl;
                     T px = array(row,col);
                     data[insertIndex] = px;
                     insertIndex++;
@@ -173,6 +182,8 @@ void ImageBlocks<T>::array2DToBlockData(const Array2D<T>& array, std::vector<T>&
         std::cout<<insertIndex<<"!="<<int(data.size())<<std::endl;
         throw std::invalid_argument("Insertion span mismatch!");
     }
+    std::cout<<"data[0]:"<<int(data[0])<<std::endl;
+    //throw std::invalid_argument("Temp Stop");
 }
 
 template<typename T>
@@ -180,6 +191,8 @@ void ImageBlocks<T>::blockDataToArray2D(const std::vector<T>& data, Array2D<T>& 
 {
     if(data.size()!=array.getCols()*array.getRows())
         throw std::invalid_argument("Size mismatch!");
+    
+    std::cout<<"data[0]:"<<int(data[0])<<std::endl;
     
     uint insertIndex=0;
     for(uint blockColInd=0; blockColInd<blockCols; blockColInd++)
@@ -193,7 +206,7 @@ void ImageBlocks<T>::blockDataToArray2D(const std::vector<T>& data, Array2D<T>& 
                 for(uint pxLocRow=0; pxLocRow<8; pxLocRow++)
                 {
                     uint col = blockOffsetCol+pxLocCol;
-                    uint row = blockOffsetCol+pxLocCol;
+                    uint row = blockOffsetRow+pxLocRow;
                     T px = data[insertIndex];
                     array(row,col) = px;
                     insertIndex++;
@@ -204,6 +217,8 @@ void ImageBlocks<T>::blockDataToArray2D(const std::vector<T>& data, Array2D<T>& 
     
     if(insertIndex!=data.size())
         throw std::invalid_argument("Insertion span mismatch!");
+    
+    std::cout<<"array(0,0):"<<int(array(0,0))<<std::endl;
 }
 
 template<typename T>
@@ -221,14 +236,17 @@ void passThroughFilter(ImageBlocks<uchar>& input, ImageBlocks<int16_t>& output)
     int16_t* outputDataPtr = output.getDataPtr();
     for(uint totalInd=0; totalInd<input.getTotal(); totalInd++)
     {
-        *(inputDataPtr+totalInd) = *(outputDataPtr+totalInd);
+        *(outputDataPtr+totalInd) = *(inputDataPtr+totalInd);
     }
+    std::cout<<"*(inputDataPtr+0):"<<int(*(inputDataPtr+0))<<std::endl;
+    std::cout<<"*(outputDataPtr+0):"<<int(*(outputDataPtr+0))<<std::endl;
 }
 
 void hardwareDCT(ImageBlocks<uchar>& input, ImageBlocks<int16_t>& output)
 {
     output.reset(input.getBlockRows(),input.getBlockCols());
     
+    //Load driver
     int fd_dct = open("/dev/misc_dct", O_RDWR);
 	if(fd_dct<0)
 	{
@@ -237,16 +255,8 @@ void hardwareDCT(ImageBlocks<uchar>& input, ImageBlocks<int16_t>& output)
 	}
 	
 	//Set number of blocks
-    uint64_t numberBlocks = input.getBlockRows()*input.getBlockCols();
+    uint32_t numberBlocks = input.getBlockRows()*input.getBlockCols();
 	ioctl(fd_dct,IOCTL_DCTNUMBLOCKS,&numberBlocks);
-	
-	//Set input image size
-    uint64_t imageInputSize = input.getTotal();
-	ioctl(fd_dct,IOCTL_DCTINPUTSIZE,&imageInputSize);
-    
-    //Set output image size
-    uint64_t imageOutputSize = input.getTotal()*2;
-	ioctl(fd_dct,IOCTL_DCTOUTPUTSIZE,&imageOutputSize);
     
     //Allocate dma memory
 	ioctl(fd_dct,IOCTL_DCTDMAMALLOC);
@@ -258,13 +268,14 @@ void hardwareDCT(ImageBlocks<uchar>& input, ImageBlocks<int16_t>& output)
     //Execute
 	ioctl(fd_dct,IOCTL_DCTEXECCMD);
     
-    // Wait for status
-    uint64_t status;
-	ioctl(fd_dct,IOCTL_DCTSTATUS,&status);
+    //Wait
+	ioctl(fd_dct,IOCTL_WAIT);
     
+    //Transfer output image data
     int16_t* outputDataPtr = output.getDataPtr();
 	ioctl(fd_dct,IOCTL_DCTOUTPUTDATA,(uint8_t*)outputDataPtr);
 
+    //Free driver dma
 	ioctl(fd_dct,IOCTL_DCTDMAFREE);
     
     close(fd_dct);

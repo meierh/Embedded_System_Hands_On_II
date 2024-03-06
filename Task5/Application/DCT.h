@@ -3,6 +3,7 @@
 #include <sys/ioctl.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <poll.h>
 #include "../Driver/ioctl_dct.h"
 
 std::unique_ptr<cv::Mat> applyDCTPassthrough(cv::Mat input);

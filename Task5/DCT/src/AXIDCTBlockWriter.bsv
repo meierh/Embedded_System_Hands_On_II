@@ -54,7 +54,7 @@ module mkAXIDCTBlockWriter(AXIDCTBlockWriter#(addrwidth,simultBlocks))
             Bit#(addrwidth) _announcedBeats_Min1 = _announcedBeats-1;
             Bit#(8) _announcedBeats_Min1_Trunc = truncate(_announcedBeats_Min1);
             axi4_write_addr(axiDataWr,reqAddr,unpack(_announcedBeats_Min1_Trunc));
-            $display("Announce from %d with %d beats and %d blocks of %d remaining",reqAddr,_announcedBeats,_announcedBlocks,_remainigBlocks);
+            //$display("Announce from %d with %d beats and %d blocks of %d remaining",reqAddr,_announcedBeats,_announcedBlocks,_remainigBlocks);
             axiWritePhase <= Send;
             blockCounter <= blockCounter + _announcedBlocks;
             addrOffset <= addrOffset + _announcedBlocks * 64 * 2;
@@ -62,7 +62,7 @@ module mkAXIDCTBlockWriter(AXIDCTBlockWriter#(addrwidth,simultBlocks))
         else
             begin
             validConfig <= False;
-            $display("Announcation done");
+            //$display("Announcation done");
             end
     endrule
 
@@ -85,7 +85,7 @@ module mkAXIDCTBlockWriter(AXIDCTBlockWriter#(addrwidth,simultBlocks))
                 sendDataBlock[pixelBitStart:pixelBitStart-15] = beat[i];
                 pixelBitStart = pixelBitStart - 16;
                 end
-            $display("Out Beat %d %d %d %d %d %d %d %d",beat[0],beat[1],beat[2],beat[3],beat[4],beat[5],beat[6],beat[7]);
+            //$display("Out Beat %d %d %d %d %d %d %d %d",beat[0],beat[1],beat[2],beat[3],beat[4],beat[5],beat[6],beat[7]);
             axi4_write_data(axiDataWr,sendDataBlock,16'b1111111111111111,lastBeat);
             sendBeatCount <= sendBeatCount + 1;
             if(sendRowCount==7)

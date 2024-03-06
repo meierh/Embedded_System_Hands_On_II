@@ -73,9 +73,13 @@ def rawSobel(kernel,stencil):
     return sobel
 
 def emulSobel(kernel,stencil,bitwidth):
-    kernel = computeIntKernel(kernel,bitwidth)
+    assert kernel.shape==(7,7)
+    assert stencil.shape==(7,7)
+    kernel = computeIntKernel(kernel,bitwidth)[0]
     mulSobelX = np.zeros((7,7),dtype=np.float128)
     mulSobelY = np.zeros((7,7),dtype=np.float128)
+    #print("stencil:",stencil)
+    #print("kernel:",kernel)
     for y in range(7):
         for x in range(7):
             mulSobelX[y][x] = stencil[y][x]*kernel[y][x]
@@ -96,6 +100,8 @@ def emulSobel(kernel,stencil,bitwidth):
     sobelY = np.floor(sobelY)
     sobel = np.abs(sobelX+sobelY)
     sobel = np.floor(sobel)
+    sobel = sobel / 2**14
+    sobel = np.floor(sobel)
     return sobel
 
 def computeError(img,kernel,bitwidth):
@@ -105,6 +111,7 @@ def computeError(img,kernel,bitwidth):
     error = np.max(error)
     return error
 
+'''
 for bitwidth in range(20):
     error = 0
     errorSum = 0
@@ -117,4 +124,40 @@ for bitwidth in range(20):
         errorSum += oneError
     errorSum /= 100
     print("Bitwidth: ",bitwidth,":  ",errorSum,"  ",error)
+'''
+    
+def getSobelChunks():
+    imageX = 10
+    imageY = 21
+    pad = 3
+    image = np.zeros((imageY+2*pad,imageX+2*pad),dtype=np.uint8)
+    counter = 0
+    for y in range(imageY):
+        for x in range(imageX):
+            image[y+pad,x+pad] = counter
+            counter = counter + 1
+    return image
 
+def passthrough(kernel,stencil,bitwidth):
+    return stencil[3][3]
+
+def applySobelOnChunks(chunks,resolutionY):
+    outLis = []
+    endIndex = 7
+    while endIndex<len(chunks):
+        for i in range(resolutionY-6):
+            oneStencilChunk = chunks[endIndex-7+i:endIndex+i]
+            #print("oneStencilChunk",oneStencilChunk.shape)
+            res = np.zeros((1,16))
+            for j in range(len(oneStencilChunk[0])-6):
+                stencil = oneStencilChunk[:,j:j+7]
+                kernel = sobel5/sobel5Div
+                #res[0][j] = emulSobel(kernel,stencil,14)
+                res[0][j] = int(np.floor(rawSobel(kernel,stencil)))
+            outLis.append(res)
+            print(res)
+        endIndex += 9
+        
+
+#print(getSobelChunks())
+applySobelOnChunks(getSobelChunks(),9)

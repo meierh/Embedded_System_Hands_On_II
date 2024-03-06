@@ -152,7 +152,7 @@ module mkSobelFilter(SobelFilter);
     
     Vector#(FILTEREDWIDTH,SobelOperator) filterCores = newVector;
     for(Integer x=0; x<valueOf(FILTEREDDATAWIDTH)/8; x=x+1)
-        filterCores[x] <- mkSobelPassthrough();
+        filterCores[x] <- mkSobelOperator();
         
     rule startComputation (topLevelStatus==Configuration && executeCmd);
         $display("Start Computation chunksCountX:%d, resolutionY:%d inputImageAddress:%d outputImageAddress:%d topLevelStatus:%d",chunksCountX,resolutionY,inputImageAddress,outputImageAddress,topLevelStatus);

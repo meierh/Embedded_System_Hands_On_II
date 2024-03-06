@@ -158,7 +158,7 @@ res = rawDCT(C,img,computeCosBlock())
 print("Raw Solution:",res)
 '''
 
-'''
+
 print(computeIntCosBlock(16))
 print(computeIntCBlock(16))
 print(computeCosBlock())
@@ -180,7 +180,7 @@ for bitwidth in range(20):
         errorSum += oneError
     errorSum /= 100
     print("Bitwidth: ",bitwidth,":  ",errorSum,"  ",error)
-'''
+
 
 cosBlock = computeCosBlock()
 
@@ -206,8 +206,9 @@ def multiBlockImage(num=8):
                 counter = counter + 1
         blockList.append(image)
     return blockList
-
+'''
 blocks = multiBlockImage()
 for i in range(len(blocks)):
     unsignBlock = visualizeAsUnsiged(rawDCT(C,blocks[i],cosBlock)[0])
     print(unsignBlock)
+'''
