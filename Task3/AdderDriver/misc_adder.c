@@ -11,6 +11,7 @@
 
 static char* adderBase = NULL;
 static int32_t* adderBaseInt32;
+static int errorCode;
 
 static long add_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
 {
@@ -20,12 +21,12 @@ static long add_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
     switch(cmd)
     {
         case IOCTL_ADD:
-	    int writeError = copy_from_user(adderBaseInt32,ab,2);
-	    if(writeError)
-		    pr_error("Adder Error: Writing summands a and b failed\n");
-	    int readError = copy_to_user(c,adderBaseInt32+2,1);
-	    if(readError)
-		    pr_error("Adder Error: Reading result c failed\n");
+	    errorCode = copy_from_user(adderBaseInt32,ab,2);
+	    if(errorCode)
+		    pr_err("Adder Error: Writing summands a and b failed\n");
+	    errorCode = copy_to_user(c,adderBaseInt32+2,1);
+	    if(errorCode)
+		    pr_err("Adder Error: Reading result c failed\n");
 	    break;
 	default:
 	    return -ENOTTY;
@@ -33,49 +34,26 @@ static long add_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
     return 0;
 }
 
-static int sample_open(struct inode *inode, struct file *file)
-{
-    pr_info("I have been awoken\n");
-    return 0;
-}
-
-static int sample_close(struct inode *inodep, struct file *filp)
-{
-    pr_info("Sleepy time\n");
-    return 0;
-}
-
-static ssize_t sample_write(struct file *file, const char __user *buf,
-		       size_t len, loff_t *ppos)
-{
-    pr_info("Yummy - I just ate %d bytes\n", len);
-    return len; /* But we don't actually do anything with the data */
-}
-
-static const struct file_operations sample_fops = {
-    .owner			= THIS_MODULE,
-    .write			= sample_write,
-    .open			= sample_open,
-    .release		= sample_close,
-    .unlocked_ioctl	= add_ioctl,
-    .llseek 		= no_llseek,
+static const struct file_operations adder_fops = {
+    .owner		= THIS_MODULE,
+    .unlocked_ioctl	= add_ioctl
 };
 
-struct miscdevice sample_device = {
+struct miscdevice adder_device = {
     .minor = MISC_DYNAMIC_MINOR,
     .name = "misc_adder",
-    .fops = &sample_fops,
+    .fops = &adder_fops,
 };
+
+static void __exit misc_exit(void);
 
 static int __init misc_init(void)
 {
-    int error;
-
-    error = misc_register(&sample_device);
-    if (error)
+    errorCode = misc_register(&adder_device);
+    if (errorCode)
     {
         pr_err("Error: Register of adder driver failed\n");
-        return error;
+        return errorCode;
     }
 
     adderBase = ioremap(ADDER_REGS_BASE_ADDR,3*ADDER_REGS_SIZE);
@@ -83,10 +61,10 @@ static int __init misc_init(void)
     {
 	pr_err("Error: Mapping of io memory failed\n");
 	misc_exit();
-	return error;
+	return errorCode;
     }
-    adderBaseInt32 = (*int32_t) adderBase;
-
+    adderBaseInt32 = (int32_t*) adderBase;
+    pr_info("Misc Adder Driver loaded\n");
     return 0;
 }
 
@@ -96,8 +74,8 @@ static void __exit misc_exit(void)
     {
         iounmap(adderBase);
     }
-    misc_deregister(&sample_device);
-    pr_info("I'm out\n");
+    misc_deregister(&adder_device);
+    pr_info("Misc Adder Driver unloaded\n");
 }
 
 module_init(misc_init)

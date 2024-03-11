@@ -107,7 +107,7 @@ package TestsMainTest;
                 
                 //Chunk Count X
                 action
-                    let reqA = AXI4_Lite_Write_Rq_Pkg {addr:8'b00011000, data:3, strb:4'b1111, prot:UNPRIV_SECURE_DATA};
+                    let reqA = AXI4_Lite_Write_Rq_Pkg {addr:8'b00011000, data:1, strb:4'b1111, prot:UNPRIV_SECURE_DATA};
                     configWrite.request.put(reqA);
                 endaction
                 action
@@ -125,7 +125,7 @@ package TestsMainTest;
                 
                 //Kernel Size
                 action
-                    let reqA = AXI4_Lite_Write_Rq_Pkg {addr:8'b00101000, data:1, strb:4'b1111, prot:UNPRIV_SECURE_DATA};
+                    let reqA = AXI4_Lite_Write_Rq_Pkg {addr:8'b00101000, data:0, strb:4'b1111, prot:UNPRIV_SECURE_DATA};
                     configWrite.request.put(reqA);
                 endaction
                 action

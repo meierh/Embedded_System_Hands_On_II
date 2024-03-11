@@ -18,13 +18,13 @@ else:
 image = None
 if(imagePath is None):
     imageX = 10
-    imageY = 21
+    imageY = 3
     pad = 3
     image = np.zeros((imageY+2*pad,imageX+2*pad),dtype=np.uint8)
     counter = 0
     for y in range(imageY):
         for x in range(imageX):
-            image[y+pad,x+pad] = counter
+            image[y+pad,x+pad] = 1
             counter = counter + 1
     threshed = cv.adaptiveThreshold(image, 255, cv.ADAPTIVE_THRESH_MEAN_C, cv.THRESH_BINARY, 3, 0)
     grayImage = cv.cvtColor(image, cv.COLOR_GRAY2BGR)

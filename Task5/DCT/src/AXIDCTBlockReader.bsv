@@ -7,6 +7,9 @@ import Real :: * ;
 import AXI4_Types :: * ;
 import AXI4_Master :: * ;
 import GetPut :: *;
+import BRAMFIFO :: * ;
+
+Integer fifoDepth = 10;
 
 typedef enum {
     Request = 2'b00,
@@ -24,7 +27,8 @@ endinterface
 module mkAXIDCTBlockReader(AXIDCTBlockReader#(addrwidth,simultBlocks))
                                 provisos(Max#(addrwidth,8,addrwidth),
                                          Max#(simultBlocks,64,64),
-                                         Add#(a__, 8, addrwidth)); // 8 <= addrwidth
+                                         Add#(a__, 8, addrwidth),
+                                         Add#(1, b__, TMul#(simultBlocks, 512))); // 8 <= addrwidth
 
 // Configuration registers
     Reg#(Bit#(addrwidth)) inputImageAddress <- mkReg(0);
@@ -108,7 +112,7 @@ module mkAXIDCTBlockReader(AXIDCTBlockReader#(addrwidth,simultBlocks))
             end
     endrule
     
-    FIFOF#(Vector#(simultBlocks,Vector#(8,Vector#(8,Bit#(8))))) outputBlocks <- mkFIFOF();    
+    FIFOF#(Vector#(simultBlocks,Vector#(8,Vector#(8,Bit#(8))))) outputBlocks <- mkSizedBRAMFIFOF(fifoDepth);    
     
     rule moveData (axiLoadPhase==Move);
         Vector#(simultBlocks,Vector#(8,Vector#(8,Bit#(8)))) multiBlock = newVector;

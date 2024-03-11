@@ -9,7 +9,8 @@ import AXI4_Master :: * ;
 import MIMO :: *;
 import GetPut :: *;
 import BRAMFIFO :: * ;
-import MIMO :: * ;
+//import MIMO :: * ;
+import FIFOF :: * ;
 
 typedef enum {
     Request = 1'b0,
@@ -26,7 +27,8 @@ endinterface
 
 module mkAXIGrayscaleWriter(AXIGrayscaleWriter#(addrwidth,datawidth,filterwidth,maxBurstLen))
                                                     provisos(Add#(a__, 8, datawidth),
-                                                             Add#(b__, 8, addrwidth)                                                            
+                                                             Add#(b__, 8, addrwidth),
+                                                             Add#(1, c__, TMul#(TDiv#(datawidth, 8), 8))
                                                             );
 
 // Configuration registers
@@ -34,7 +36,7 @@ module mkAXIGrayscaleWriter(AXIGrayscaleWriter#(addrwidth,datawidth,filterwidth,
     Reg#(Bit#(addrwidth)) chunkNumber <- mkReg(0);
     Reg#(Bool) validConfig <- mkReg(False);
     
-    FIFO#(Vector#(TDiv#(datawidth,8),Bit#(8))) windowFIFO <- mkSizedFIFO(valueOf(maxBurstLen));
+    FIFOF#(Vector#(TDiv#(datawidth,8),Bit#(8))) windowFIFO <- mkSizedBRAMFIFOF(valueOf(maxBurstLen));
            
 // AXI connect
     AXI4_Master_Wr#(addrwidth,datawidth,1,0) axiDataWr <- mkAXI4_Master_Wr(1,1,1,False);

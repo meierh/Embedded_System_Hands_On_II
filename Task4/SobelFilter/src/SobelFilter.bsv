@@ -21,7 +21,7 @@ typedef 16 AXIIMAGEDATALEN;
 typedef 80 FILTEREDDATAWIDTH;
 typedef 10 FILTEREDWIDTH;
 
-typedef 16 MAXAXIBURSTLEN;
+typedef 32 MAXAXIBURSTLEN;
 
 //(* always_ready, always_enabled *)
 interface SobelFilter;

@@ -1,3 +1,3 @@
 #include <linux/ioctl.h>
-#define IOC_MAGIC_k ioc_adder_num
-#define IOCTL_ADD _IOWR(ioc_adder_num,'abc',int32_t*);
+#define IOC_MAGIC 'k'
+#define IOCTL_ADD _IOWR(IOC_MAGIC,'+',int32_t*)

@@ -23,7 +23,8 @@ interface AXIGrayscaleReader#(numeric type addrwidth, numeric type datawidth, nu
 endinterface
 
 module mkAXIGrayscaleReader(AXIGrayscaleReader#(addrwidth,datawidth,maxBurstLen))
-                                                provisos(Add#(a__, 8, addrwidth));
+                                                provisos(Add#(a__, 8, addrwidth),
+                                                Add#(1, b__, TMul#(7, TMul#(TDiv#(datawidth, 8), 8))));
 
 // Configuration registers
     Reg#(Bit#(addrwidth)) inputImageAddress <- mkReg(0);
@@ -54,7 +55,7 @@ module mkAXIGrayscaleReader(AXIGrayscaleReader#(addrwidth,datawidth,maxBurstLen)
             Bit#(addrwidth) _requestedChunks_Min1 = _requestedChunks-1;
             Bit#(8) _requestedChunks_Min1_Trunc = truncate(_requestedChunks_Min1);
             axi4_read_data(axiDataRd,reqAddr,unpack(_requestedChunks_Min1_Trunc));
-            //$display("Request from %d with %d chunks of %d remaining",reqAddr,_requestedChunks,_remainigChunks);
+            $display("Request from %d with %d chunks of %d remaining",reqAddr,_requestedChunks,_remainigChunks);
             axiLoadPhase <= Read;
             chunkCounter <= chunkCounter + _requestedChunks;
             addrOffset <= addrOffset + _requestedChunks * 16;
@@ -67,7 +68,7 @@ module mkAXIGrayscaleReader(AXIGrayscaleReader#(addrwidth,datawidth,maxBurstLen)
     endrule
 
     Reg#(Bit#(addrwidth)) readRowCount <- mkReg(0);
-    Reg#(Bit#(addrwidth)) chunksCountX <- mkReg(0);
+    //Reg#(Bit#(addrwidth)) chunksCountX <- mkReg(0);
     
     rule readData (axiLoadPhase==Read);
         let readResponse <- axiDataRd.response.get();
@@ -78,7 +79,7 @@ module mkAXIGrayscaleReader(AXIGrayscaleReader#(addrwidth,datawidth,maxBurstLen)
             begin
             lastRow = True;
             readRowCount <= 0;
-            chunksCountX <= chunksCountX + 1;
+            //chunksCountX <= chunksCountX + 1;
             end
         else
             begin
@@ -93,7 +94,7 @@ module mkAXIGrayscaleReader(AXIGrayscaleReader#(addrwidth,datawidth,maxBurstLen)
             oneChunk[i] = responseData[pixelBitStart:pixelBitStart-7];
             pixelBitStart = pixelBitStart - 8;
             end
-        //$display("In Chunk %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d last %b",oneChunk[0],oneChunk[1],oneChunk[2],oneChunk[3],oneChunk[4],oneChunk[5],oneChunk[6],oneChunk[7],oneChunk[8],oneChunk[9],oneChunk[10],oneChunk[11],oneChunk[12],oneChunk[13],oneChunk[14],oneChunk[15],lastRow);
+        $display("In Chunk %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d last %b",oneChunk[0],oneChunk[1],oneChunk[2],oneChunk[3],oneChunk[4],oneChunk[5],oneChunk[6],oneChunk[7],oneChunk[8],oneChunk[9],oneChunk[10],oneChunk[11],oneChunk[12],oneChunk[13],oneChunk[14],oneChunk[15],lastRow);
 
         chunkFIFO.enq(tuple2(oneChunk,lastRow));
 
@@ -106,7 +107,7 @@ module mkAXIGrayscaleReader(AXIGrayscaleReader#(addrwidth,datawidth,maxBurstLen)
         for(Integer j=0; j<valueOf(datawidth)/8; j=j+1)
             window[i][j] <- mkRegU;
     Reg#(Bit#(addrwidth)) insertionRow <- mkReg(0);
-    FIFOF#(Vector#(7,Vector#(TDiv#(datawidth,8),Bit#(8)))) windowFIFO <- mkSizedFIFOF(valueOf(maxBurstLen));
+    FIFOF#(Vector#(7,Vector#(TDiv#(datawidth,8),Bit#(8)))) windowFIFO <- mkSizedBRAMFIFOF(valueOf(maxBurstLen));
     
     rule constructWindow;
         Tuple2#(Vector#(TDiv#(datawidth,8),Bit#(8)),Bool) oneRow = chunkFIFO.first;
@@ -148,7 +149,7 @@ module mkAXIGrayscaleReader(AXIGrayscaleReader#(addrwidth,datawidth,maxBurstLen)
         //rowNumber <= resolutionY;
         chunkNumber <= _chunksNumberX*_resolutionY;
         readRowCount <= 0;
-        chunksCountX <= 0;
+        //chunksCountX <= 0;
         insertionRow <= 0;
         chunkCounter <= 0;
         axiLoadPhase <= Request;

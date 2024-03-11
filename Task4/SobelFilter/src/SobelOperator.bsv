@@ -5,10 +5,12 @@ import Vector :: * ;
 import FIFO :: * ;
 import Real :: * ;
 import SobelTypes :: * ;
+import BRAMFIFO :: * ;
+import FIFOF :: * ;
 
 typedef 22 FIXEDWIDTH;
 
-Integer fifoDepth = 50;
+Integer fifoDepth = 1;
 
 (* always_ready, always_enabled *)
 interface SobelOperator;
@@ -21,7 +23,7 @@ endinterface
 module mkSobelOperator(SobelOperator);
 
 // Kernels 
-    // Bitpattern[Sign:1, Nonfraction:7, Fraction:12]
+    // Bitpattern[Sign:1, Nonfraction:9, Fraction:12]
     Int#(FIXEDWIDTH) fx3[7][7] =   {{0 ,0 ,   0, 0,    0, 0, 0},
                                     {0 ,0 ,   0, 0,    0, 0, 0},
                                     {0 ,0 , 512, 0, -512, 0, 0},
@@ -48,44 +50,23 @@ module mkSobelOperator(SobelOperator);
     
     Reg#(Vector#(7,Vector#(7,Int#(FIXEDWIDTH)))) kernel <- mkRegU();
     
-    FIFO#(Vector#(7,Vector#(7,Int#(FIXEDWIDTH)))) imageStencil <- mkSizedFIFO(fifoDepth);
+    FIFOF#(Vector#(7,Vector#(7,Int#(FIXEDWIDTH)))) imageStencil <- mkSizedBRAMFIFOF(fifoDepth*10);
 
 // Multiply kernel with pixel stencil    
-    FIFO#(Vector#(7,Vector#(7,Int#(FIXEDWIDTH)))) multipled_x <- mkSizedFIFO(fifoDepth);
-    FIFO#(Vector#(7,Vector#(7,Int#(FIXEDWIDTH)))) multipled_y <- mkSizedFIFO(fifoDepth);
-    FIFO#(Bool) multipled_valid <- mkSizedFIFO(fifoDepth);
+    FIFOF#(Vector#(7,Vector#(7,Int#(FIXEDWIDTH)))) multipled_x <- mkSizedBRAMFIFOF(fifoDepth);
+    FIFOF#(Vector#(7,Vector#(7,Int#(FIXEDWIDTH)))) multipled_y <- mkSizedBRAMFIFOF(fifoDepth);
 
     rule multiply;
         Vector#(7,Vector#(7,Int#(FIXEDWIDTH))) _imageStencil = imageStencil.first;
         imageStencil.deq;
-        
-        Vector#(7,Vector#(7,Int#(32))) extStencil = newVector;
-        Vector#(7,Vector#(7,Int#(32))) extKernel = newVector;
-        for(Integer y=0; y<7; y=y+1)
-            for(Integer x=0; x<7; x=x+1)
-                begin
-                extStencil[y][x] = signExtend(_imageStencil[y][x]);
-                extKernel[y][x] = signExtend(kernel[y][x]);
-                end
-          
-        Vector#(7,Vector#(7,Int#(32))) extMultX = newVector;
-        Vector#(7,Vector#(7,Int#(32))) extMultY = newVector;
-        for(Integer y=0; y<7; y=y+1)
-            for(Integer x=0; x<7; x=x+1)
-                begin
-                extMultX[y][x] = extStencil[y][x]*extKernel[y][x];
-                extMultY[y][x] = extStencil[y][x]*extKernel[x][y];
-                end
                 
         Vector#(7,Vector#(7,Int#(FIXEDWIDTH))) _multipled_x = newVector;
         Vector#(7,Vector#(7,Int#(FIXEDWIDTH))) _multipled_y = newVector;
         for(Integer y=0; y<7; y=y+1)
             for(Integer x=0; x<7; x=x+1)
                 begin
-                Int#(FIXEDWIDTH) multX = truncate(extMultX[y][x]);
-                Int#(FIXEDWIDTH) multY = truncate(extMultY[y][x]);
-                _multipled_x[y][x] = multX;
-                _multipled_y[y][x] = multY;
+                _multipled_x[y][x] = _imageStencil[y][x]*kernel[y][x];
+                _multipled_y[y][x] = _imageStencil[y][x]*kernel[x][y];
                 end
                 
         multipled_x.enq(_multipled_x);
@@ -95,8 +76,8 @@ module mkSobelOperator(SobelOperator);
 // Sum rows of multiplied stencil
 
 // Summation 1
-    FIFO#(Vector#(7,Vector#(4,Int#(FIXEDWIDTH)))) summed_rows1_x <- mkSizedFIFO(fifoDepth);
-    FIFO#(Vector#(4,Vector#(7,Int#(FIXEDWIDTH)))) summed_rows1_y <- mkSizedFIFO(fifoDepth);
+    FIFOF#(Vector#(7,Vector#(2,Int#(FIXEDWIDTH)))) summed_rows1_x <- mkSizedFIFOF(fifoDepth);
+    FIFOF#(Vector#(2,Vector#(7,Int#(FIXEDWIDTH)))) summed_rows1_y <- mkSizedFIFOF(fifoDepth);
     
     rule sum_rows1;
         Vector#(7,Vector#(7,Int#(FIXEDWIDTH))) _multipled_x = multipled_x.first;
@@ -104,19 +85,15 @@ module mkSobelOperator(SobelOperator);
         multipled_x.deq;
         multipled_y.deq;
         
-        Vector#(7,Vector#(4,Int#(FIXEDWIDTH))) _sum_Row1_x = newVector;
-        Vector#(4,Vector#(7,Int#(FIXEDWIDTH))) _sum_Row1_y = newVector;
+        Vector#(7,Vector#(2,Int#(FIXEDWIDTH))) _sum_Row1_x = newVector;
+        Vector#(2,Vector#(7,Int#(FIXEDWIDTH))) _sum_Row1_y = newVector;
         
         for(Integer i=0; i<7; i=i+1)
             begin
-            _sum_Row1_x[i][0] = _multipled_x[i][0] + _multipled_x[i][6];
-            _sum_Row1_x[i][1] = _multipled_x[i][1] + _multipled_x[i][5];
-            _sum_Row1_x[i][2] = _multipled_x[i][2] + _multipled_x[i][4]; 
-            _sum_Row1_x[i][3] = _multipled_x[i][3]; 
-            _sum_Row1_y[0][i] = _multipled_y[0][i] + _multipled_y[6][i];
-            _sum_Row1_y[1][i] = _multipled_y[1][i] + _multipled_y[5][i];
-            _sum_Row1_y[2][i] = _multipled_y[2][i] + _multipled_y[4][i]; 
-            _sum_Row1_y[3][i] = _multipled_y[3][i]; 
+            _sum_Row1_x[i][0] = _multipled_x[i][0] + _multipled_x[i][1] + _multipled_x[i][2] + _multipled_x[i][3];
+            _sum_Row1_x[i][1] = _multipled_x[i][4] + _multipled_x[i][5] + _multipled_x[i][6];
+            _sum_Row1_y[0][i] = _multipled_y[0][i] + _multipled_y[1][i] + _multipled_y[2][i] + _multipled_y[3][i];
+            _sum_Row1_y[1][i] = _multipled_y[1][i] + _multipled_y[5][i] + _multipled_y[6][i];
             end
             
         summed_rows1_x.enq(_sum_Row1_x);
@@ -124,122 +101,45 @@ module mkSobelOperator(SobelOperator);
     endrule
     
 // Summation 2
-    FIFO#(Vector#(4,Vector#(4,Int#(FIXEDWIDTH)))) summed_cols1_x <- mkSizedFIFO(fifoDepth);
-    FIFO#(Vector#(4,Vector#(4,Int#(FIXEDWIDTH)))) summed_cols1_y <- mkSizedFIFO(fifoDepth);
+    FIFOF#(Vector#(2,Vector#(2,Int#(FIXEDWIDTH)))) summed_cols1_x <- mkSizedFIFOF(fifoDepth);
+    FIFOF#(Vector#(2,Vector#(2,Int#(FIXEDWIDTH)))) summed_cols1_y <- mkSizedFIFOF(fifoDepth);
     
     rule sum_cols1;
-        Vector#(7,Vector#(4,Int#(FIXEDWIDTH))) _sum_Row1_x = summed_rows1_x.first;
-        Vector#(4,Vector#(7,Int#(FIXEDWIDTH))) _sum_Row1_y = summed_rows1_y.first;
+        Vector#(7,Vector#(2,Int#(FIXEDWIDTH))) _sum_Row1_x = summed_rows1_x.first;
+        Vector#(2,Vector#(7,Int#(FIXEDWIDTH))) _sum_Row1_y = summed_rows1_y.first;
         summed_rows1_x.deq;
         summed_rows1_y.deq;
         
-        Vector#(4,Vector#(4,Int#(FIXEDWIDTH))) _sum_Col1_x = newVector;
-        Vector#(4,Vector#(4,Int#(FIXEDWIDTH))) _sum_Col1_y = newVector;
+        Vector#(2,Vector#(2,Int#(FIXEDWIDTH))) _sum_Col1_x = newVector;
+        Vector#(2,Vector#(2,Int#(FIXEDWIDTH))) _sum_Col1_y = newVector;
         
-        for(Integer i=0; i<4; i=i+1)
+        for(Integer i=0; i<2; i=i+1)
             begin
-            _sum_Col1_x[0][i] = _sum_Row1_x[0][i] + _sum_Row1_x[6][i];
-            _sum_Col1_x[1][i] = _sum_Row1_x[1][i] + _sum_Row1_x[5][i];
-            _sum_Col1_x[2][i] = _sum_Row1_x[2][i] + _sum_Row1_x[4][i]; 
-            _sum_Col1_x[3][i] = _sum_Row1_x[3][i]; 
-            _sum_Col1_y[i][0] = _sum_Row1_y[i][0] + _sum_Row1_y[i][6];
-            _sum_Col1_y[i][1] = _sum_Row1_y[i][1] + _sum_Row1_y[i][5];
-            _sum_Col1_y[i][2] = _sum_Row1_y[i][2] + _sum_Row1_y[i][4]; 
-            _sum_Col1_y[i][3] = _sum_Row1_y[i][3]; 
+            _sum_Col1_x[0][i] = _sum_Row1_x[0][i] + _sum_Row1_x[1][i] + _sum_Row1_x[2][i] + _sum_Row1_x[3][i];
+            _sum_Col1_x[1][i] = _sum_Row1_x[4][i] + _sum_Row1_x[5][i] + _sum_Row1_x[6][i];
+            _sum_Col1_y[i][0] = _sum_Row1_y[i][0] + _sum_Row1_y[i][1] + _sum_Row1_y[i][2] + _sum_Row1_y[i][3];
+            _sum_Col1_y[i][1] = _sum_Row1_y[i][4] + _sum_Row1_y[i][5] + _sum_Row1_y[i][6];
             end
             
         summed_cols1_x.enq(_sum_Col1_x);
         summed_cols1_y.enq(_sum_Col1_y);
     endrule
-    
-// Summation 3
-    FIFO#(Vector#(4,Vector#(2,Int#(FIXEDWIDTH)))) summed_rows2_x <- mkSizedFIFO(fifoDepth);
-    FIFO#(Vector#(2,Vector#(4,Int#(FIXEDWIDTH)))) summed_rows2_y <- mkSizedFIFO(fifoDepth);
-    
-    rule sum_rows2;
-        Vector#(4,Vector#(4,Int#(FIXEDWIDTH))) _sum_Col1_x = summed_cols1_x.first;
-        Vector#(4,Vector#(4,Int#(FIXEDWIDTH))) _sum_Col1_y = summed_cols1_y.first;
-        summed_cols1_x.deq;
-        summed_cols1_y.deq;
         
-        Vector#(4,Vector#(2,Int#(FIXEDWIDTH))) _sum_Row2_x = newVector;
-        Vector#(2,Vector#(4,Int#(FIXEDWIDTH))) _sum_Row2_y = newVector;
-        
-        for(Integer i=0; i<4; i=i+1)
-            begin
-            _sum_Row2_x[i][0] = _sum_Col1_x[i][0] + _sum_Col1_x[i][2];
-            _sum_Row2_x[i][1] = _sum_Col1_x[i][1] + _sum_Col1_x[i][3];
-            _sum_Row2_y[0][i] = _sum_Col1_y[0][i] + _sum_Col1_y[2][i];
-            _sum_Row2_y[1][i] = _sum_Col1_y[1][i] + _sum_Col1_y[3][i];
-            end
-            
-        summed_rows2_x.enq(_sum_Row2_x);
-        summed_rows2_y.enq(_sum_Row2_y);
-    endrule
-    
-// Summation 4
-    FIFO#(Vector#(2,Vector#(2,Int#(FIXEDWIDTH)))) summed_cols2_x <- mkSizedFIFO(fifoDepth);
-    FIFO#(Vector#(2,Vector#(2,Int#(FIXEDWIDTH)))) summed_cols2_y <- mkSizedFIFO(fifoDepth);
-    
-    rule sum_cols2;
-        Vector#(4,Vector#(2,Int#(FIXEDWIDTH))) _sum_Row2_x = summed_rows2_x.first;
-        Vector#(2,Vector#(4,Int#(FIXEDWIDTH))) _sum_Row2_y = summed_rows2_y.first;
-        summed_rows2_x.deq;
-        summed_rows2_y.deq;
-        
-        Vector#(2,Vector#(2,Int#(FIXEDWIDTH))) _sum_Col2_x = newVector;
-        Vector#(2,Vector#(2,Int#(FIXEDWIDTH))) _sum_Col2_y = newVector;
-        
-        for(Integer i=0; i<2; i=i+1)
-            begin
-            _sum_Col2_x[0][i] = _sum_Row2_x[0][i] + _sum_Row2_x[2][i];
-            _sum_Col2_x[1][i] = _sum_Row2_x[1][i] + _sum_Row2_x[3][i];
-            _sum_Col2_y[i][0] = _sum_Row2_y[i][0] + _sum_Row2_y[i][2];
-            _sum_Col2_y[i][1] = _sum_Row2_y[i][1] + _sum_Row2_y[i][3];
-            end
-            
-        summed_cols2_x.enq(_sum_Col2_x);
-        summed_cols2_y.enq(_sum_Col2_y);
-    endrule
-    
 // Summation 5
-    FIFO#(Vector#(2,Int#(FIXEDWIDTH))) summed_rows3_x <- mkSizedFIFO(fifoDepth);
-    FIFO#(Vector#(2,Int#(FIXEDWIDTH))) summed_rows3_y <- mkSizedFIFO(fifoDepth);
-    
-    rule sum_rows3;
-        Vector#(2,Vector#(2,Int#(FIXEDWIDTH))) _sum_Col2_x = summed_cols2_x.first;
-        Vector#(2,Vector#(2,Int#(FIXEDWIDTH))) _sum_Col2_y = summed_cols2_y.first;
-        summed_cols2_x.deq;
-        summed_cols2_y.deq;
-        
-        Vector#(2,Int#(FIXEDWIDTH)) _sum_Row3_x = newVector;
-        Vector#(2,Int#(FIXEDWIDTH)) _sum_Row3_y = newVector;
-        
-        for(Integer i=0; i<2; i=i+1)
-            begin
-            _sum_Row3_x[i] = _sum_Col2_x[i][0] + _sum_Col2_x[i][1];
-            _sum_Row3_y[i] = _sum_Col2_y[0][i] + _sum_Col2_y[1][i];
-            end
-            
-        summed_rows3_x.enq(_sum_Row3_x);
-        summed_rows3_y.enq(_sum_Row3_y);
-    endrule
-    
     FIFO#(Int#(FIXEDWIDTH)) summed_cols3_x <- mkSizedFIFO(fifoDepth);
     FIFO#(Int#(FIXEDWIDTH)) summed_cols3_y <- mkSizedFIFO(fifoDepth);
     
-// Summation 6
-    rule sum_cols3;
-        Vector#(2,Int#(FIXEDWIDTH)) _sum_Row3_x = summed_rows3_x.first;
-        Vector#(2,Int#(FIXEDWIDTH)) _sum_Row3_y = summed_rows3_y.first;
-        summed_rows3_x.deq;
-        summed_rows3_y.deq;
+    rule sum_rows3;
+        Vector#(2,Vector#(2,Int#(FIXEDWIDTH))) _sum_Col1_x = summed_cols1_x.first;
+        Vector#(2,Vector#(2,Int#(FIXEDWIDTH))) _sum_Col1_y = summed_cols1_y.first;
+        summed_cols1_x.deq;
+        summed_cols1_y.deq;
         
-        Int#(FIXEDWIDTH) _sum_Col3_x = _sum_Row3_x[0]+_sum_Row3_x[1];
-        Int#(FIXEDWIDTH) _sum_Col3_y = _sum_Row3_y[0]+_sum_Row3_y[1];
-            
-        summed_cols3_x.enq(_sum_Col3_x);
-        summed_cols3_y.enq(_sum_Col3_y);
+        Int#(FIXEDWIDTH) _sum_Row3_x = _sum_Col1_x[0][0] + _sum_Col1_x[1][0] + _sum_Col1_x[0][1] + _sum_Col1_x[1][1];
+        Int#(FIXEDWIDTH) _sum_Row3_y = _sum_Col1_y[0][0] + _sum_Col1_y[1][0] + _sum_Col1_y[0][1] + _sum_Col1_y[1][1];
+        
+        summed_cols3_x.enq(_sum_Row3_x);
+        summed_cols3_y.enq(_sum_Row3_y);
     endrule
         
 // Take norm of sobel filter x and y
@@ -262,7 +162,7 @@ module mkSobelOperator(SobelOperator);
         UInt#(8) _sobel = unpack(truncBSobel);
         sobel_full.enq(_sobel);
         
-        //$display("sobel: %d",_sobel);
+        $display("sobel: %d  sobel_x: %d  sobel_y %d  || extSobel: %d",_sobel,_sobel_x,_sobel_y,extSobel);
     endrule
     
 // Interface methods

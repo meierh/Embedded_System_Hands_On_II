@@ -2,7 +2,8 @@
 #include <stdlib.h>
 #include <fcntl.h>
 #include <unistd.h>
-#include <ioctl_adder.h>
+#include <sys/ioctl.h>
+#include "ioctl_adder.h"
 
 int main()
 {

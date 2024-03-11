@@ -6,11 +6,14 @@ import Real :: * ;
 import AXI4_Types :: * ;
 import AXI4_Master :: * ;
 import GetPut :: *;
+import BRAMFIFO :: * ;
 
 typedef enum {
     Request = 2'b00,
     Send = 2'b01
     } AXIBurstStoragePhase deriving (Bits,Eq);
+    
+Integer fifoDepth = 10;
     
 (* always_ready, always_enabled *)
 interface AXIDCTBlockWriter#(numeric type addrwidth, numeric type simultBlocks);
@@ -23,7 +26,8 @@ endinterface
 module mkAXIDCTBlockWriter(AXIDCTBlockWriter#(addrwidth,simultBlocks))
                                 provisos(Max#(addrwidth,8,addrwidth),
                                          Max#(simultBlocks,64,64),
-                                         Add#(a__, 8, addrwidth)); // 8 <= addrwidth
+                                         Add#(a__, 8, addrwidth),
+                                         Add#(1, b__, TMul#(simultBlocks, 1024))); // 8 <= addrwidth
 
 // Configuration registers
     Reg#(Bit#(addrwidth)) outputAddress <- mkReg(0);
@@ -33,7 +37,7 @@ module mkAXIDCTBlockWriter(AXIDCTBlockWriter#(addrwidth,simultBlocks))
 // AXI connect
     AXI4_Master_Wr#(addrwidth,128,1,0) axiDataWr <- mkAXI4_Master_Wr(1,1,1,False);
     
-    FIFOF#(Vector#(simultBlocks,Vector#(8,Vector#(8,Bit#(16))))) inputBlocks <- mkFIFOF();    
+    FIFOF#(Vector#(simultBlocks,Vector#(8,Vector#(8,Bit#(16))))) inputBlocks <- mkSizedBRAMFIFOF(fifoDepth);    
 
 // Load data from AXI slave
     Reg#(Bit#(addrwidth)) blockCounter <- mkReg(0);

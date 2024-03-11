@@ -3,8 +3,10 @@ package SystolicArray;
 import List :: * ;
 import Vector :: * ;
 import FIFO :: * ;
+import FIFOF :: * ;
 import Real :: * ;
 import VectorDelayer :: *;
+import BRAMFIFO :: * ;
 
 typedef enum {
     Ready = 2'b00,
@@ -12,7 +14,7 @@ typedef enum {
     Done = 2'b10
     } SysArrayState deriving (Bits,Eq);
     
-Integer fifoDepth = 50;
+Integer fifoDepth = 2;
 
 (* always_ready, always_enabled *)
 interface SystolicArray#(numeric type scalarType);
@@ -23,7 +25,9 @@ endinterface
 module mkSystolicArray(SystolicArray#(scalarType))
                                 provisos(
                                     Add#(a__, scalarType, TMul#(scalarType, 8)),
-                                    Add#(1, b__, scalarType)/*,
+                                    Add#(1, b__, scalarType),
+                                    Add#(1, c__, TMul#(8, TMul#(8, scalarType)))
+                                    /*,
                                 
                                     Add#(1, b__, scalarType),
                                     Add#(a__, scalarType, TMul#(scalarType, 8)),
@@ -49,8 +53,8 @@ module mkSystolicArray(SystolicArray#(scalarType))
                                     
     Reg#(SysArrayState) status <- mkReg(Ready);
     
-    FIFO#(Vector#(8,Vector#(8,Int#(scalarType)))) _matA <- mkSizedFIFO(fifoDepth);
-    FIFO#(Vector#(8,Vector#(8,Int#(scalarType)))) _matB <- mkSizedFIFO(fifoDepth);
+    FIFOF#(Vector#(8,Vector#(8,Int#(scalarType)))) _matA <- mkSizedBRAMFIFOF(fifoDepth);
+    FIFOF#(Vector#(8,Vector#(8,Int#(scalarType)))) _matB <- mkSizedBRAMFIFOF(fifoDepth);
     
     Vector#(8,VectorDelayer#(scalarType)) _matA_vecs = newVector;
     Vector#(8,VectorDelayer#(scalarType)) _matB_vecs = newVector;

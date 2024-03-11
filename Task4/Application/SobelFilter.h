@@ -14,8 +14,8 @@ class Array2D
 {
     public:
         Array2D(uint cols, uint rows);
-        T& operator()(uint col, uint row);
-        T operator()(uint col, uint row) const;
+        T& operator()(uint row, uint col);
+        T operator()(uint row, uint col) const;
         uint getCols()const{return cols;}
         uint getRows()const{return rows;}
     private:
@@ -25,7 +25,8 @@ class Array2D
 };
 
 std::unique_ptr<Array2D<uchar>> cvGrayscaleToArray(const cv::Mat image);
-std::unique_ptr<cv::Mat> arrayToCvGrayscale(const Array2D<int16_t>& array);
+std::unique_ptr<cv::Mat> arrayToCvGrayscale(const Array2D<uchar>& array);
+std::unique_ptr<cv::Mat> arrayToCvGrayscale(const Array2D<uchar>& array, int columns);
 
 template<typename T>
 class SobelChunks
@@ -50,9 +51,9 @@ class SobelChunks
         uint chunkSize;
         uint chunkShift;
         std::vector<T> data;
-        void array2DToBlockData(const Array2D<T>& image, uint chunkSize, uint chunkShift, std::vector<T>& data);
-        void blockDataToArray2D(const std::vector<T>& data, Array2D<T>& image, uint chunkSize, uint chunkShift);
+        void array2DToChunkData(const Array2D<T>& image, uint chunkSize, uint chunkShift, std::vector<T>& data);
+        void chunkDataToArray2D(const std::vector<T>& data, Array2D<T>& image, uint chunkSize, uint chunkShift);
         void init(uint rows, uint chunkCols, uint chunkSize, uint chunkShift);
 };
 
-void passThroughFilter(std::vector<std::byte> input, std::vector<std::byte> output);
+void passThroughFilter(SobelChunks<uchar> input, SobelChunks<uchar>& output);

@@ -13,7 +13,7 @@ typedef 8 AXICONFIGADDRWIDTH;
 typedef 32 AXICONFIGDATAWIDTH;
 typedef 128 AXIIMAGEDATAWIDTH;
 
-typedef 3 SIMULTBLOCKS;
+typedef 1 SIMULTBLOCKS;
 
 typedef enum {
     Configuration = 1'b0,
@@ -62,7 +62,7 @@ module mkDCT(DCT);
                 endaction
     endfunction : writeInputAddr
     WriteOperation#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeInputAddrStruct;
-    writeInputAddrStruct = WriteOperation { index:8, fun:writeInputAddr };
+    writeInputAddrStruct = WriteOperation { index:4, fun:writeInputAddr };
     writeInputAddress = tagged Write writeInputAddrStruct;
     configurationOperations = List::cons(writeInputAddress,configurationOperations);
     
@@ -75,7 +75,7 @@ module mkDCT(DCT);
                 endaction
     endfunction : writeOutputAddr
     WriteOperation#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeOutputAddrStruct;
-    writeOutputAddrStruct = WriteOperation { index:16, fun:writeOutputAddr };
+    writeOutputAddrStruct = WriteOperation { index:8, fun:writeOutputAddr };
     writeOutputAddress = tagged Write writeOutputAddrStruct;
     configurationOperations = List::cons(writeOutputAddress,configurationOperations);
     
@@ -88,7 +88,7 @@ module mkDCT(DCT);
                 endaction
     endfunction : writeNumberBlocksFunc
     WriteOperation#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeNumberBlocksStruct;
-    writeNumberBlocksStruct = WriteOperation { index:24, fun:writeNumberBlocksFunc };
+    writeNumberBlocksStruct = WriteOperation { index:12, fun:writeNumberBlocksFunc };
     writeNumberBlocks = tagged Write writeNumberBlocksStruct;
     configurationOperations = List::cons(writeNumberBlocks,configurationOperations);
     
@@ -104,7 +104,7 @@ module mkDCT(DCT);
                 endaction
     endfunction : writeExecuteCmd
     WriteOperation#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeExecuteCmdStruct;
-    writeExecuteCmdStruct = WriteOperation { index:32, fun : writeExecuteCmd };
+    writeExecuteCmdStruct = WriteOperation { index:16, fun : writeExecuteCmd };
     writeExecuteCommand = tagged Write writeExecuteCmdStruct;
     configurationOperations = List::cons(writeExecuteCommand,configurationOperations);
     

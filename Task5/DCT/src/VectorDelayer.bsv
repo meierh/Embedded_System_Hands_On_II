@@ -6,7 +6,7 @@ import FIFO :: * ;
 import Real :: * ;
 import MIMO :: *;
 
-Integer fifoDepth = 50;
+Integer fifoDepth = 2;
 
 (* always_ready, always_enabled *)
 interface VectorDelayer#(numeric type scalarType);

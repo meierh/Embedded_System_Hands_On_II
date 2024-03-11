@@ -3,10 +3,12 @@ package DCTOperator;
 import List :: * ;
 import Vector :: * ;
 import FIFO :: * ;
+import FIFOF :: * ;
 import Real :: * ;
 import SystolicArray :: *;
+import BRAMFIFO :: * ;
 
-Integer fifoDepth = 50;
+Integer fifoDepth = 2;
 
 typedef 32 FIXEDWIDTH;
 typedef 16 NONFRACTION;
@@ -83,7 +85,7 @@ module mkDCTOperator(DCTOperator);
         return block_transposed;
     endfunction
         
-    FIFO#(BLOCK) imageBlock <- mkFIFO;
+    FIFOF#(BLOCK) imageBlock <- mkSizedBRAMFIFOF(fifoDepth);
    
     SystolicArray#(FIXEDWIDTH) matrixMulti_Mod1 <- mkSystolicArray;
     
@@ -117,7 +119,7 @@ module mkDCTOperator(DCTOperator);
         matrixMulti_Mod2.setMatrix(cosxu,sCos);
     endrule
     
-    FIFO#(Vector#(8,Vector#(8,Int#(FIXEDWIDTH)))) dctBlock <- mkFIFO;
+    FIFOF#(Vector#(8,Vector#(8,Int#(FIXEDWIDTH)))) dctBlock <- mkSizedBRAMFIFOF(fifoDepth);
     
     rule normalizeDCT;
         //$display("Compute CuCv * Cos * s * Cos",$time);

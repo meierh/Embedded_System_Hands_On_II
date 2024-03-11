@@ -14,20 +14,23 @@ package TestsMainTest;
             seq
                 action
                     $display("Sobel Operator configure");
-                    dut.configure(Sobel5);
+                    dut.configure(Sobel3);
                 endaction
                 action
                     $display("Insert stencil");
                     Vector#(7,Vector#(7,UInt#(8))) stencil = newVector;
                     for(Integer y=0; y<7; y=y+1)
                         for(Integer x=0; x<7; x=x+1)
-                            stencil[y][x] = fromInteger(y*x*5);
-                    dut.insertStencil(tuple2(stencil,True));
+                            if(x > 3)
+                                stencil[y][x] = 255;//fromInteger(y*x*5);
+                            else
+                                stencil[y][x] = 0;
+                    dut.insertStencil(stencil);
                 endaction
                 delay(1000);
                 action
-                    Tuple2#(UInt#(8),Bool) res <- dut.getGradMag;
-                    $display("Got value %d being valid %b",tpl_1(res),tpl_2(res));
+                    UInt#(8) res <- dut.getGradMag;
+                    $display("Got value %d",(res));
                 endaction
             endseq
         };
