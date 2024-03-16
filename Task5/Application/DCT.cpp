@@ -17,8 +17,8 @@ std::unique_ptr<cv::Mat> applyDCTPassthrough(cv::Mat input)
     std::cout<<"Transfered Grayscale 2d-array to DCT blocks!"<<std::endl;
     
     ImageBlocks<int16_t> dctCoeffBlocks;
-    passThroughFilter(grayScaleBlocks,dctCoeffBlocks);
-    std::cout<<"Passthrough DCT Filter!"<<std::endl;
+    hardwareDCT(grayScaleBlocks,dctCoeffBlocks);
+    std::cout<<"Hardware DCT Filter!"<<std::endl;
     
     std::unique_ptr<Array2D<int16_t>> grayScaleDctCoeffs = dctCoeffBlocks.reconstructImage();
     std::cout<<"Reconstruct dct to grayscale image!"<<std::endl;
@@ -248,35 +248,67 @@ void hardwareDCT(ImageBlocks<uchar>& input, ImageBlocks<int16_t>& output)
     
     //Load driver
     int fd_dct = open("/dev/misc_dct", O_RDWR);
-	if(fd_dct<0)
-	{
-		printf("Cannot open dct device\n");
-		throw std::logic_error("Failed to open dct device");
-	}
-	
-	//Set number of blocks
+    if(fd_dct<0)
+    {
+	printf("Cannot open dct device\n");
+	throw std::logic_error("Failed to open dct device");
+    }
+
+    ioctl(fd_dct,IOCTL_DCTWAIT);
+
+    //Set number of blocks
     uint32_t numberBlocks = input.getBlockRows()*input.getBlockCols();
-	ioctl(fd_dct,IOCTL_DCTNUMBLOCKS,&numberBlocks);
-    
+    ioctl(fd_dct,IOCTL_DCTNUMBLOCKS,&numberBlocks);
+    	
     //Allocate dma memory
-	ioctl(fd_dct,IOCTL_DCTDMAMALLOC);
+    ioctl(fd_dct,IOCTL_DCTDMAMALLOC);
 
     //Transfer input image data
-    uchar* inputDataPtr = input.getDataPtr();
-	ioctl(fd_dct,IOCTL_DCTINPUTDATA,(uint8_t*)inputDataPtr);
+    std::vector<uint8_t> inputData = input.getData();
+    rotate128Beat(inputData);
+    ioctl(fd_dct,IOCTL_DCTINPUTDATA,inputData.data());
     
     //Execute
-	ioctl(fd_dct,IOCTL_DCTEXECCMD);
+    ioctl(fd_dct,IOCTL_DCTEXECCMD);
     
     //Wait
-	ioctl(fd_dct,IOCTL_WAIT);
-    
+    ioctl(fd_dct,IOCTL_DCTWAIT);
+   
     //Transfer output image data
-    int16_t* outputDataPtr = output.getDataPtr();
-	ioctl(fd_dct,IOCTL_DCTOUTPUTDATA,(uint8_t*)outputDataPtr);
+    std::vector<int16_t> outputData = output.getData();
+    ioctl(fd_dct,IOCTL_DCTOUTPUTDATA,outputData.data());
+    rotate128Beat(outputData);
 
     //Free driver dma
-	ioctl(fd_dct,IOCTL_DCTDMAFREE);
-    
+    ioctl(fd_dct,IOCTL_DCTDMAFREE);
+
     close(fd_dct);
+}
+
+void rotate128Beat(std::vector<uint8_t>& data)
+{
+    if(data.size()%16!=0)
+	throw std::logic_error("Invalid data size for beat rotation");
+    std::array<uint8_t,16> rotateBeat;
+    for(uint beatInd=0; beatInd<data.size(); beatInd+=16)
+    {
+	for(uint byteInd=0; byteInd<16; byteInd++)
+	    rotateBeat[15-byteInd] = data[beatInd+byteInd];
+	for(uint byteInd=0; byteInd<16; byteInd++)
+	    data[beatInd+byteInd] = rotateBeat[byteInd];
+    }
+}
+
+void rotate128Beat(std::vector<int16_t>& data)
+{
+    if(data.size()%8!=0)
+	throw std::logic_error("Invalid data size for beat rotation");
+    std::array<int16_t,8> rotateBeat;
+    for(uint beatInd=0; beatInd<data.size(); beatInd+=8)
+    {
+	for(uint byteInd=0; byteInd<8; byteInd++)
+	    rotateBeat[7-byteInd] = data[beatInd+byteInd];
+	for(uint byteInd=0; byteInd<8; byteInd++)
+	    data[beatInd+byteInd] = rotateBeat[byteInd];
+    }
 }

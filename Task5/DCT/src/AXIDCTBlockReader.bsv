@@ -84,14 +84,14 @@ module mkAXIDCTBlockReader(AXIDCTBlockReader#(addrwidth,simultBlocks))
             axiReadRegisters[readBlockCount][readRowCount][i] <= responseData[pixelBitStart:pixelBitStart-7];
             pixelBitStart = pixelBitStart - 8;
             end
-        //$display("In Beat %d %d %d %d %d %d %d %d",responseData[127:120],responseData[119:112],responseData[111:104],responseData[103:96],responseData[95:88],responseData[87:80],responseData[79:72],responseData[71:64]);
+        $display("In Beat %d %d %d %d %d %d %d %d",responseData[127:120],responseData[119:112],responseData[111:104],responseData[103:96],responseData[95:88],responseData[87:80],responseData[79:72],responseData[71:64]);
 
         for(Integer i=0; i<8; i=i+1)
             begin
             axiReadRegisters[readBlockCount][readRowCount+1][i] <= responseData[pixelBitStart:pixelBitStart-7];
             pixelBitStart = pixelBitStart - 8;
             end
-        //$display("        %d %d %d %d %d %d %d %d",responseData[63:56],responseData[55:48],responseData[47:40],responseData[39:32],responseData[31:24],responseData[23:16],responseData[15:8],responseData[7:0]);
+        $display("        %d %d %d %d %d %d %d %d",responseData[63:56],responseData[55:48],responseData[47:40],responseData[39:32],responseData[31:24],responseData[23:16],responseData[15:8],responseData[7:0]);
            
         if(!responseLast)
             begin

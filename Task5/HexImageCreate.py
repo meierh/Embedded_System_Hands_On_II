@@ -18,19 +18,21 @@ else:
 image = None
 if(imagePath is None):
     imageX = 8
-    imageY = 8*8
+    imageY = 2*8
     pad = 0
     image = np.zeros((imageY+2*pad,imageX+2*pad),dtype=np.uint8)
     counter = 32
     for y in range(imageY):
-        for x in range(imageX):
-            image[y+pad,x+pad] = counter
-            counter = counter + 1
+        if y<(imageY/2):
+            for x in range(imageX):
+                image[y+pad,x+pad] = counter
+                counter = counter + 1
+        else:
+            for x in range(imageX):
+                image[y+pad,x+pad] = 255
     threshed = cv.adaptiveThreshold(image, 255, cv.ADAPTIVE_THRESH_MEAN_C, cv.THRESH_BINARY, 3, 0)
     grayImage = cv.cvtColor(image, cv.COLOR_GRAY2BGR)
     print(image)
-    #cv.imshow(' ',grayImage)
-    #cv.waitKey(0)
     print('Image size: ('+str(imageY+2*pad)+','+str(imageX+2*pad)+')')
     flatImage = image.flatten()
     numChunks = int(np.ceil(len(flatImage)/16))

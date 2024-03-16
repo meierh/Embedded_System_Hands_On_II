@@ -6,6 +6,7 @@ import FIFOF :: * ;
 import Real :: * ;
 import AXI4_Types :: * ;
 import AXI4_Master :: * ;
+import SobelTypes :: *;
 import GetPut :: *;
 import BRAMFIFO :: * ;
 
@@ -24,7 +25,8 @@ endinterface
 
 module mkAXIGrayscaleReader(AXIGrayscaleReader#(addrwidth,datawidth,maxBurstLen))
                                                 provisos(Add#(a__, 8, addrwidth),
-                                                Add#(1, b__, TMul#(7, TMul#(TDiv#(datawidth, 8), 8))));
+                                                         Div#(datawidth, 8, 16),
+                                                         Add#(1, b__, TMul#(7, TMul#(TDiv#(datawidth, 8), 8))));
 
 // Configuration registers
     Reg#(Bit#(addrwidth)) inputImageAddress <- mkReg(0);
@@ -94,7 +96,7 @@ module mkAXIGrayscaleReader(AXIGrayscaleReader#(addrwidth,datawidth,maxBurstLen)
             oneChunk[i] = responseData[pixelBitStart:pixelBitStart-7];
             pixelBitStart = pixelBitStart - 8;
             end
-        $display("In Chunk %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d last %b",oneChunk[0],oneChunk[1],oneChunk[2],oneChunk[3],oneChunk[4],oneChunk[5],oneChunk[6],oneChunk[7],oneChunk[8],oneChunk[9],oneChunk[10],oneChunk[11],oneChunk[12],oneChunk[13],oneChunk[14],oneChunk[15],lastRow);
+        //$display("In Chunk %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d last %b",oneChunk[0],oneChunk[1],oneChunk[2],oneChunk[3],oneChunk[4],oneChunk[5],oneChunk[6],oneChunk[7],oneChunk[8],oneChunk[9],oneChunk[10],oneChunk[11],oneChunk[12],oneChunk[13],oneChunk[14],oneChunk[15],lastRow);
 
         chunkFIFO.enq(tuple2(oneChunk,lastRow));
 
@@ -112,32 +114,47 @@ module mkAXIGrayscaleReader(AXIGrayscaleReader#(addrwidth,datawidth,maxBurstLen)
     rule constructWindow;
         Tuple2#(Vector#(TDiv#(datawidth,8),Bit#(8)),Bool) oneRow = chunkFIFO.first;
         chunkFIFO.deq;
+        Vector#(TDiv#(datawidth,8),Bit#(8)) pixels = tpl_1(oneRow);
+        Bool lastRow = tpl_2(oneRow);
+
+        //$display("In Window %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d insertionRow %d",pixels[0],pixels[1],pixels[2],pixels[3],pixels[4],pixels[5],pixels[6],pixels[7],pixels[8],pixels[9],pixels[10],pixels[11],pixels[12],pixels[13],pixels[14],pixels[15],insertionRow);
+
         if(insertionRow==6)
             begin
+            
+            //Collect window for fifo insertion
             Vector#(7,Vector#(TDiv#(datawidth,8),Bit#(8))) _window = newVector;
-            for(Integer j=0; j<valueOf(datawidth)/8; j=j+1)
-                for(Integer i=1; i<7; i=i+1)    
+            for(Integer i=0; i<6; i=i+1)
+                for(Integer j=0; j<valueOf(datawidth)/8; j=j+1)
                     _window[i][j] = window[i][j];
-            windowFIFO.enq(_window);
             for(Integer j=0; j<valueOf(datawidth)/8; j=j+1)
-                begin
-                for(Integer i=1; i<7; i=i+1)
-                    window[i-1][j] <= window[i][j];
-                window[6][j] <= tpl_1(oneRow)[j];
-                end
-            if(tpl_2(oneRow))
+                _window[6][j] = pixels[j];
+            //printChunks(_window);
+            windowFIFO.enq(_window);
+            
+            if(lastRow)
                 insertionRow <= 0;
+            else
+                begin
+                for(Integer j=0; j<valueOf(datawidth)/8; j=j+1)
+                    begin
+                    for(Integer i=1; i<6; i=i+1)
+                        window[i-1][j] <= window[i][j];
+                    window[5][j] <= pixels[j];
+                    end
+                end
             end
         else
             begin
             for(Integer j=0; j<valueOf(datawidth)/8; j=j+1)
-                window[insertionRow][j] <= tpl_1(oneRow)[j];
+                window[insertionRow][j] <= pixels[j];
             insertionRow <= insertionRow + 1;
             end
     endrule
     
     method ActionValue#(Vector#(7,Vector#(TDiv#(datawidth,8),Bit#(8)))) getWindow ();
         Vector#(7,Vector#(TDiv#(datawidth,8),Bit#(8))) _window = windowFIFO.first;
+        //printChunks(_window);
         windowFIFO.deq;
         return _window;
     endmethod

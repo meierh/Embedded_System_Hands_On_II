@@ -10,8 +10,8 @@ import BRAMFIFO :: * ;
 
 Integer fifoDepth = 2;
 
-typedef 32 FIXEDWIDTH;
-typedef 16 NONFRACTION;
+typedef 26 FIXEDWIDTH;
+typedef 11 NONFRACTION;
 typedef Vector#(8,Vector#(8,UInt#(8))) BLOCK;
 
 (* always_ready, always_enabled *)
@@ -50,6 +50,7 @@ module mkDCTOperator(DCTOperator);
 
     // Bitpattern[Sign:1, Nonfraction:15, Fraction:16]
     //cos[x][u] = cos(((2*x+1)*u*pi)/16)[x][u]
+    /*
     Int#(FIXEDWIDTH) cosinus[8][8] =   {{65536, 64277, 60547, 54491, 46341, 36410, 25080, 12785},
                                         {65536, 54491, 25080,-12785,-46341,-64277,-60547,-36410},
                                         {65536, 36410,-25080,-64277,-46341, 12785, 60547, 54491},
@@ -60,6 +61,20 @@ module mkDCTOperator(DCTOperator);
                                         {65536,-64277, 60547,-54491, 46341,-36410, 25080,-12785}};
                                         
     Int#(FIXEDWIDTH) c[8] =   {46341, 65536, 65536, 65536, 65536, 65536, 65536, 65536};
+    */
+    
+    // Bitpattern[Sign:1, Nonfraction:14, Fraction:11]
+    //cos[x][u] = cos(((2*x+1)*u*pi)/16)[x][u]
+    Int#(FIXEDWIDTH) cosinus[8][8] =   {{2048, 2009, 1892, 1703, 1448, 1138,  784,  400},
+                                        {2048, 1703,  784, -400,-1448,-2009,-1892,-1138},
+                                        {2048, 1138, -784,-2009,-1448,  400, 1892, 1703},
+                                        {2048,  400,-1892,-1138, 1448, 1703, -784,-2009},
+                                        {2048, -400,-1892, 1138, 1448,-1703, -784, 2009},
+                                        {2048,-1138, -784, 2009,-1448, -400, 1892,-1703},
+                                        {2048,-1703,  784,  400,-1448, 2009,-1892, 1138},
+                                        {2048,-2009, 1892,-1703, 1448,-1138,  784, -400}};
+                                        
+    Int#(FIXEDWIDTH) c[8] =   {1448, 2048, 2048, 2048, 2048, 2048, 2048, 2048};
         
     function Vector#(8,Vector#(8,Int#(FIXEDWIDTH))) readCos();
         Vector#(8,Vector#(8,Int#(FIXEDWIDTH))) cos = newVector;
@@ -101,8 +116,9 @@ module mkDCTOperator(DCTOperator);
                 Bit#(FIXEDWIDTH) lbPixel = extend(bPixel);
                 syx[y][x] = unpack(lbPixel);
                 end
-        //printMatrix(syx);
         Vector#(8,Vector#(8,Int#(FIXEDWIDTH))) cosyv = readCos();
+        //printMatrix(syx);
+        //printMatrix(cosyv);
         matrixMulti_Mod1.setMatrix(syx,cosyv);
     endrule
     
@@ -111,6 +127,7 @@ module mkDCTOperator(DCTOperator);
     rule matrixMult_Cos_SCos;
         //$display("Compute Cos * s * Cos",$time);
         Vector#(8,Vector#(8,Int#(FIXEDWIDTH))) sCos <- matrixMulti_Mod1.getResult();
+        //printMatrix(sCos);
         sCos = rShift(sCos,valueOf(NONFRACTION));
         //printMatrix(sCos);
         Vector#(8,Vector#(8,Int#(FIXEDWIDTH))) cosxu = readCos();

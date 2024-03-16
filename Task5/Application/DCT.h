@@ -40,7 +40,8 @@ class ImageBlocks
         uint getBlockRows()const{return blockRows;}
         uint getBlockCols()const{return blockCols;}
         uint getTotal()const{return blockCols*blockRows*64;}
-        T* getDataPtr(){return data.data();}
+	T* getDataPtr(){return data.data();}
+	std::vector<T>& getData(){return data;}
         std::unique_ptr<Array2D<T>> reconstructImage();
     
     private:
@@ -54,3 +55,5 @@ class ImageBlocks
 
 void passThroughFilter(ImageBlocks<uchar>& input, ImageBlocks<int16_t>& output);
 void hardwareDCT(ImageBlocks<uchar>& input, ImageBlocks<int16_t>& output);
+void rotate128Beat(std::vector<uint8_t>& data);
+void rotate128Beat(std::vector<int16_t>& data);

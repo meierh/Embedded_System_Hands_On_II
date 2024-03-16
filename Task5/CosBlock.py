@@ -1,4 +1,5 @@
 import numpy as np
+from scipy.fftpack import fft, dct
 np.set_printoptions(precision=2)
 
 def computeCosBlock():
@@ -23,6 +24,25 @@ def imageBlock():
                 img[y][x] = 255-y*y-3*x*x;
             else:
                 img[y][x] = 200-y*y-3*x*x;
+    img = np.floor(img)
+    return img
+
+def imageBlock2():
+    img = np.zeros((8,8),dtype=np.float128)
+    counter = 32
+    for y in range(8):
+        for x in range(8):
+            img[y][x] = counter
+            counter = counter + 1;
+    img = np.floor(img)
+    return img
+
+def imageBlockMax():
+    img = np.zeros((8,8),dtype=np.float128)
+    counter = 32
+    for y in range(8):
+        for x in range(8):
+            img[y][x] = 255
     img = np.floor(img)
     return img
     
@@ -77,6 +97,8 @@ def matMulDCT(C,img,cosBlock,reduction=1):
 
 def emulDCTIP(img,bitwidth):
     cosBlock = computeIntCosBlock(bitwidth)[0]
+    #print(img)
+    #print(cosBlock)
     C = computeIntCBlock(bitwidth)[0]
     maxVal = max(0,img.all())
     maxVal = max(maxVal,cosBlock.all())
@@ -122,13 +144,36 @@ def emulDCTIP(img,bitwidth):
             maxVal = max(maxVal,dct[v][u])
     return dct,maxVal
 
+def preciseDCT(img):
+    S = np.zeros((8,8))
+    for v in range(8):
+        for u in range(8):
+            interSum = 0
+            for x in range(8):
+                for y in range(8):
+                    interSum += img[y][x]*np.cos(((2*x+1)*u*np.pi)/16)*np.cos(((2*y+1)*v*np.pi)/16)
+            interSum = 0.25*C[u]*C[v]*interSum
+            S[v][u] = interSum
+    return S
+
 def computeError(imageGetter,bitwidth):
     img = imageGetter()
     rawDCTBlock = rawDCT(C,img,computeCosBlock())
+    #print(rawDCTBlock)
     intDCTBlock = emulDCTIP(img,bitwidth)
-    error = np.divide(np.abs(rawDCTBlock[0]-intDCTBlock[0]),rawDCTBlock[0],out=np.zeros_like(rawDCTBlock[0]), where=np.abs(rawDCTBlock[0])>1e-10)*100
-    error = np.max(error)
-    return error
+    #print(intDCTBlock)
+    relError = np.divide(np.abs(rawDCTBlock[0]-intDCTBlock[0]),np.abs(rawDCTBlock[0]),out=np.zeros_like(rawDCTBlock[0]), where=np.abs(rawDCTBlock[0])>1e-10)*100
+    #print(relError)
+    weightedRelError = np.abs(np.multiply(relError,np.abs(rawDCTBlock[0])));
+    sumWeightedRelError = np.sum(np.abs(rawDCTBlock[0]))
+    if sumWeightedRelError!=0:
+        weightedRelError = weightedRelError / np.sum(rawDCTBlock[0])
+    #print(weightedRelError);
+    maxError = np.max(weightedRelError)
+    #print(maxError)
+    avgError = np.average(weightedRelError)
+    #print(avgError)
+    return maxError,avgError
 
 def randImage():
     img = np.random.random_integers(0,255,(8,8))
@@ -149,40 +194,31 @@ def linearImage(k=1):
             img[y][x] = np.clip(img[y][x],0,255)
     return img
 
-'''
-img  = imageBlock()
-print(img)
-res = emulDCTIP(img,16)
-print("Hardware Solution:",res)
-res = rawDCT(C,img,computeCosBlock())
-print("Raw Solution:",res)
-'''
+
+#print(computeIntCosBlock(16))
+#print(computeIntCBlock(16))
+#print(computeCosBlock())
 
 
-print(computeIntCosBlock(16))
-print(computeIntCBlock(16))
-print(computeCosBlock())
-
-img = randImage()
-print(img)
-rawDCTRes = emulDCTIP(imageBlock(),10)
-print(rawDCTRes)
-
-for bitwidth in range(20):
-    error = 0
-    errorSum = 0
-    for k in range(1000):
-        img = randImage()
-        def imgGetter():
-            return img
-        oneError = computeError(linearImage,bitwidth)
-        error = max(error,oneError)
-        errorSum += oneError
-    errorSum /= 100
-    print("Bitwidth: ",bitwidth,":  ",errorSum,"  ",error)
+def findBitwidthErrors():
+    for bitwidth in range(20):
+        maxError = 0
+        avgError = 0
+        numTrials = 1
+        for k in range(numTrials):
+            img = imageBlock()
+            def imgGetter():
+                return img
+            oneMaxError,oneAvgError = computeError(linearImage,bitwidth)
+            maxError = max(maxError,oneMaxError)
+            avgError += oneAvgError
+        avgError /= numTrials
+        print("Bitwidth: ",bitwidth,":  ",avgError,"  ",maxError)
+        
+findBitwidthErrors()
 
 
-cosBlock = computeCosBlock()
+#cosBlock = computeCosBlock()
 
 def visualizeAsUnsiged(image):
     print(type(image))
@@ -206,9 +242,28 @@ def multiBlockImage(num=8):
                 counter = counter + 1
         blockList.append(image)
     return blockList
-'''
-blocks = multiBlockImage()
-for i in range(len(blocks)):
-    unsignBlock = visualizeAsUnsiged(rawDCT(C,blocks[i],cosBlock)[0])
-    print(unsignBlock)
-'''
+
+np.set_printoptions(precision=2)
+np.set_printoptions(suppress=True)
+
+print(computeIntCosBlock(11))
+
+img = imageBlock2()
+print("Block")
+print(img)
+emulDCTRes = emulDCTIP(img,11)
+print("emulDCTRes");
+print(emulDCTRes)
+preciseDCTRes = preciseDCT(img)
+print("preciseDCTRes");
+print(preciseDCTRes)
+
+img = imageBlockMax()
+print("Block")
+print(img)
+emulDCTRes = emulDCTIP(img,11)
+print("emulDCTRes");
+print(emulDCTRes)
+preciseDCTRes = preciseDCT(img)
+print("preciseDCTRes");
+print(preciseDCTRes)

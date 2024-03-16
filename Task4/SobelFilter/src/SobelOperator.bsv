@@ -33,11 +33,11 @@ module mkSobelOperator(SobelOperator);
                                     {0 ,0 ,   0, 0,    0, 0, 0}};
     
     Int#(FIXEDWIDTH) fx5[7][7] =   {{0 ,   0,   0, 0,    0,    0, 0},
-                                    {0 , 171, 341, 0, -341, -171, 0},
-                                    {0 , 683,1365, 0,-1365, -683, 0},
-                                    {0 ,1024,2048, 0,-2048,-1024, 0},
-                                    {0 , 683,1365, 0,-1365, -683, 0},
-                                    {0 , 171, 341, 0, -341, -171, 0},
+                                    {0 ,  43,  85, 0,  -85,  -43, 0},
+                                    {0 , 171, 341, 0, -341,  170, 0},
+                                    {0 , 256, 512, 0, -512, -256, 0},
+                                    {0 , 171, 341, 0, -341, -170, 0},
+                                    {0 ,  43,  85, 0,  -85,  -43, 0},
                                     {0 ,   0,   0, 0,    0,    0, 0}};
     
     Int#(FIXEDWIDTH) fx7[7][7] =   {{ 3, 13, 16, 0, -16, -13, -3},
@@ -60,6 +60,9 @@ module mkSobelOperator(SobelOperator);
         Vector#(7,Vector#(7,Int#(FIXEDWIDTH))) _imageStencil = imageStencil.first;
         imageStencil.deq;
                 
+        //printStencil_22(_imageStencil);
+        //printStencil_22(kernel);
+                
         Vector#(7,Vector#(7,Int#(FIXEDWIDTH))) _multipled_x = newVector;
         Vector#(7,Vector#(7,Int#(FIXEDWIDTH))) _multipled_y = newVector;
         for(Integer y=0; y<7; y=y+1)
@@ -68,6 +71,9 @@ module mkSobelOperator(SobelOperator);
                 _multipled_x[y][x] = _imageStencil[y][x]*kernel[y][x];
                 _multipled_y[y][x] = _imageStencil[y][x]*kernel[x][y];
                 end
+        
+        //printStencil_22(_multipled_x);
+        //printStencil_22(_multipled_y);
                 
         multipled_x.enq(_multipled_x);
         multipled_y.enq(_multipled_y);
@@ -85,6 +91,8 @@ module mkSobelOperator(SobelOperator);
         multipled_x.deq;
         multipled_y.deq;
         
+        //printStencil_22(_multipled_y);
+        
         Vector#(7,Vector#(2,Int#(FIXEDWIDTH))) _sum_Row1_x = newVector;
         Vector#(2,Vector#(7,Int#(FIXEDWIDTH))) _sum_Row1_y = newVector;
         
@@ -93,7 +101,7 @@ module mkSobelOperator(SobelOperator);
             _sum_Row1_x[i][0] = _multipled_x[i][0] + _multipled_x[i][1] + _multipled_x[i][2] + _multipled_x[i][3];
             _sum_Row1_x[i][1] = _multipled_x[i][4] + _multipled_x[i][5] + _multipled_x[i][6];
             _sum_Row1_y[0][i] = _multipled_y[0][i] + _multipled_y[1][i] + _multipled_y[2][i] + _multipled_y[3][i];
-            _sum_Row1_y[1][i] = _multipled_y[1][i] + _multipled_y[5][i] + _multipled_y[6][i];
+            _sum_Row1_y[1][i] = _multipled_y[4][i] + _multipled_y[5][i] + _multipled_y[6][i];
             end
             
         summed_rows1_x.enq(_sum_Row1_x);
@@ -120,6 +128,9 @@ module mkSobelOperator(SobelOperator);
             _sum_Col1_y[i][0] = _sum_Row1_y[i][0] + _sum_Row1_y[i][1] + _sum_Row1_y[i][2] + _sum_Row1_y[i][3];
             _sum_Col1_y[i][1] = _sum_Row1_y[i][4] + _sum_Row1_y[i][5] + _sum_Row1_y[i][6];
             end
+            
+        //printSum2_22(_sum_Col1_x);
+        //printSum2_22(_sum_Col1_y);
             
         summed_cols1_x.enq(_sum_Col1_x);
         summed_cols1_y.enq(_sum_Col1_y);
@@ -151,6 +162,9 @@ module mkSobelOperator(SobelOperator);
         Int#(FIXEDWIDTH) _sobel_y = summed_cols3_y.first;
         summed_cols3_y.deq;
         
+        //$display("_sobel_x %d",_sobel_x);
+        //$display("_sobel_y %d",_sobel_y);
+        
         Int#(32) extSobelX = signExtend(_sobel_x);
         Int#(32) extSobelY = signExtend(_sobel_y);
         Int#(32) extSobel = extSobelX+extSobelY;
@@ -162,7 +176,7 @@ module mkSobelOperator(SobelOperator);
         UInt#(8) _sobel = unpack(truncBSobel);
         sobel_full.enq(_sobel);
         
-        $display("sobel: %d  sobel_x: %d  sobel_y %d  || extSobel: %d",_sobel,_sobel_x,_sobel_y,extSobel);
+        //$display("sobel: %d  sobel_x: %d  sobel_y %d  || extSobel: %d",_sobel,_sobel_x,_sobel_y,extSobel);
     endrule
     
 // Interface methods
@@ -215,6 +229,7 @@ module mkSobelPassthrough(SobelOperator);
     
     method ActionValue#(UInt#(8)) getGradMag ();
         UInt#(8) px = sobel.first;
+        $display("magGrad: %d",px);
         sobel.deq;
         return px;
     endmethod

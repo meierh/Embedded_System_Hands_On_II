@@ -160,4 +160,4 @@ def applySobelOnChunks(chunks,resolutionY):
         
 
 #print(getSobelChunks())
-applySobelOnChunks(getSobelChunks(),9)
+#applySobelOnChunks(getSobelChunks(),9)

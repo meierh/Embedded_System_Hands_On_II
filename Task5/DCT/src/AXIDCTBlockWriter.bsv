@@ -10,7 +10,8 @@ import BRAMFIFO :: * ;
 
 typedef enum {
     Request = 2'b00,
-    Send = 2'b01
+    Send = 2'b01,
+    Response = 2'b10
     } AXIBurstStoragePhase deriving (Bits,Eq);
     
 Integer fifoDepth = 10;
@@ -105,9 +106,14 @@ module mkAXIDCTBlockWriter(AXIDCTBlockWriter#(addrwidth,simultBlocks))
             sendBeatCount <= 0;
             sendRowCount <= 0;
             sendBlockCount <= 0;
-            axiWritePhase <= Request;
+            axiWritePhase <= Response;
             inputBlocks.deq;
             end
+    endrule
+    
+    rule responseData (axiWritePhase==Response);
+        AXI4_Write_Rs#(1,0) resp <- axi4_write_response(axiDataWr);
+        axiWritePhase <= Request;
     endrule
 
     method Action setBlock (Vector#(simultBlocks,Vector#(8,Vector#(8,Bit#(16)))) multiBlock);

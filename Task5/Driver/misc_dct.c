@@ -6,24 +6,33 @@
 #include <linux/dma-mapping.h>
 #include "ioctl_dct.h"
 
+#define AXI_PAGE_SIZE 4096
 #define ADDER_REGS_BASE_ADDR 0xA0000000
 #define ADDER_REGS_END_ADDR 0xA0000FFF
 #define ADDER_REGS_SIZE 4
 
-static uint32_t inputImageByteSize;
-static dma_addr_t inputDMAHandle;
-void* inputDMAcpu;
+static uint32_t numberOfBlocks=0;
 
-static uint32_t outputImageByteSize;
-static dma_addr_t outputDMAHandle;
-void* outputDMAcpu;
+static uint32_t inImageDataByteSize;
+static uint32_t inImageMemByteSize;
+static dma_addr_t inImageDataDMAHandle;
+static dma_addr_t inImageMemDMAHandle;
+void* inImageDataDMAcpu;
+void* inImageMemDMAcpu;
+
+static uint32_t outImageDataByteSize;
+static uint32_t outImageMemByteSize;
+static dma_addr_t outImageDataDMAHandle;
+static dma_addr_t outImageMemDMAHandle;
+void* outImageDataDMAcpu;
+void* outImageMemDMAcpu;
 
 static char* dctBase = NULL;
-static uint32_t* dctStatus;
-static uint32_t* dctInputAXIAddr;
-static uint32_t* dctOutputAXIAddr;
-static uint32_t* dctNumBlocks;
-static uint32_t* dctExec;
+static uint32_t* dctStatus;		//0
+static uint32_t* dctInputAXIAddr;	//4
+static uint32_t* dctOutputAXIAddr;	//8
+static uint32_t* dctNumBlocks;		//12
+static uint32_t* dctExec;		//16
 
 static long dct_ioctl(struct file *f, unsigned int cmd, unsigned long arg);
 
@@ -43,63 +52,119 @@ static long dct_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
     switch(cmd)
     {
         case IOCTL_DCTNUMBLOCKS:
-        {            
-            int writeError = copy_from_user(dctNumBlocks,(uint32_t*)arg,1);
+        {
+            int writeError = copy_from_user(dctNumBlocks,(uint32_t*)arg,4);
             if(writeError)
                 pr_err("DCT Driver Error: Writing number of blocks failed\n");
-            inputImageByteSize = (*dctNumBlocks)*64;
-            outputImageByteSize = (*dctNumBlocks)*64*2;
-            break;
+    
+    	    writeError = copy_from_user(&numberOfBlocks,(uint32_t*)arg,4);
+	    if(writeError)
+		 pr_err("DCT Driver Error: Writing number of blocks failed\n");
+	    // pr_info("Write %d blocks\n",numberOfBlocks);
+
+            inImageDataByteSize = numberOfBlocks*64;
+            outImageDataByteSize = numberOfBlocks*64*2;
+
+	    inImageMemByteSize = inImageDataByteSize+AXI_PAGE_SIZE;
+	    outImageMemByteSize = outImageDataByteSize+AXI_PAGE_SIZE;
+
+	    /*
+	    pr_info("inImageDataByteSize: %d\n",inImageDataByteSize);
+	    pr_info("inImageMemByteSize: %d\n",inImageMemByteSize);
+	    pr_info("outImageDataByteSize: %d\n",outImageDataByteSize);
+	    pr_info("outImageMemByteSize: %d\n",outImageMemByteSize);
+            */
+
+	    break;
         }
         case IOCTL_DCTDMAMALLOC:
-        {
-            inputDMAcpu = dma_alloc_coherent(dct_device.this_device,inputImageByteSize,&inputDMAHandle,GFP_KERNEL);
-            if(inputDMAcpu==NULL)
+	{
+            inImageMemDMAcpu = dma_alloc_coherent(dct_device.this_device,inImageMemByteSize,&inImageMemDMAHandle,GFP_KERNEL);
+            if(inImageMemDMAcpu==NULL)
                 pr_err("DCT Driver Error: Allocation of input image dma failed\n");
-            outputDMAcpu = dma_alloc_coherent(dct_device.this_device,outputImageByteSize,&outputDMAHandle,GFP_KERNEL);
-            if(outputDMAcpu==NULL)
+            uint32_t inOffsetToNextPage = ((uint32_t)inImageMemDMAHandle)%AXI_PAGE_SIZE;
+	    inImageDataDMAcpu = inImageMemDMAcpu+inOffsetToNextPage;
+	    inImageDataDMAHandle = inImageMemDMAHandle+inOffsetToNextPage;
+	    *dctInputAXIAddr = (uint32_t)inImageDataDMAHandle;
+
+	    /*
+	    pr_info("inOffsetToNextPage: %d\n",inOffsetToNextPage);
+	    pr_info("inImageMemDMAHandle: %d\n",(uint64_t)inImageMemDMAHandle);
+	    pr_info("inImageDataDMAHandle: %d\n",(uint64_t)inImageDataDMAHandle);
+	    pr_info("inImageMemDMAcpu: %d\n",(uint64_t)inImageMemDMAcpu);
+	    pr_info("inImageDataDMAcpu: %d\n",(uint64_t)inImageDataDMAcpu);
+	    */
+
+	    outImageMemDMAcpu = dma_alloc_coherent(dct_device.this_device,outImageMemByteSize,&outImageMemDMAHandle,GFP_KERNEL);
+            if(outImageMemDMAcpu==NULL)
                 pr_err("DCT Driver Error: Allocation of output image dma failed\n");
-            *dctInputAXIAddr = (uint32_t) inputDMAHandle;
-            *dctOutputAXIAddr = (uint32_t) outputDMAHandle;
+	    uint32_t outOffsetToNextPage = ((uint32_t)outImageMemDMAHandle)%AXI_PAGE_SIZE;
+	    outImageDataDMAcpu = outImageMemDMAcpu+outOffsetToNextPage;
+	    outImageDataDMAHandle = outImageMemDMAHandle+outOffsetToNextPage;
+            *dctOutputAXIAddr = (uint32_t) outImageDataDMAHandle;
+
+	    /*
+	    pr_info("outOffsetToNextPage: %d\n",outOffsetToNextPage);
+    	    pr_info("outImageMemDMAHandle: %d\n",(uint64_t)outImageMemDMAHandle);
+	    pr_info("outImageDataDMAHandle: %d\n",(uint64_t)outImageDataDMAHandle);
+	    pr_info("outImageMemDMAcpu: %d\n",(uint64_t)outImageMemDMAcpu);
+	    pr_info("outImageDataDMAcpu: %d\n",(uint64_t)outImageDataDMAcpu);
+	    */
             break;
         }
         case IOCTL_DCTINPUTDATA:
         {
-            int writeError = copy_from_user((uint8_t*)inputDMAcpu,(uint8_t*)arg,inputImageByteSize);   
+            int writeError = copy_from_user((uint8_t*)inImageDataDMAcpu,(uint8_t*)arg,inImageDataByteSize);   
             if(writeError)
                 pr_err("DCT Driver Error: Copy to DMA input memory failed\n");
-            //dma_sync_single_for_device(dct_device.this_device,inputDMAHandle,inputImageByteSize,DMA_TO_DEVICE);
-            break;
+	    /*
+            pr_info("Write %d bytes to in image\n",inImageDataByteSize);
+	    pr_info("Data %d\n",*((uint8_t*)inImageDataDMAcpu));
+	    */
+	    break;
         }
         case IOCTL_DCTEXECCMD:
         {
-            *dctExec = 1;
-            break;
+	    *dctExec = 1;
+	    pr_info("Executed DCT on %d blocks\n",numberOfBlocks);
+	    while(*dctStatus==1)
+	    {
+		    pr_info("Running DCT\n");
+	    }
+	    pr_info("Completed DCT\n");
         }
-        case IOCTL_WAIT:
-        {
+        case IOCTL_DCTWAIT:
+	{
             while(*dctStatus==1)
-            {
-            }
+	    {
+		    pr_info("Running DCT\n");
+	    }
+	    pr_info("Completed DCT\n");
             break;
         }
         case IOCTL_DCTOUTPUTDATA:
         {
-            int readError = copy_to_user((uint8_t*)arg,(uint8_t*)outputDMAcpu,outputImageByteSize);   
+
+            int readError = copy_to_user((int16_t*)arg,(int16_t*)outImageDataDMAcpu,outImageDataByteSize);   
             if(readError)
                 pr_err("DCT Driver Error: Copy from DMA output memory failed\n");
-            //dma_sync_single_for_cpu(dct_device.this_device,outputDMAHandle,outputImageByteSize,DMA_FROM_DEVICE);
-            break;
+	   
+	    /*
+	    pr_info("Read %d bytes to out image\n",outImageDataByteSize);
+	    pr_info("Data %d\n",*((int16_t*)outImageDataDMAcpu));
+	    */
+	    break;
         }
         case IOCTL_DCTDMAFREE:
         {
-            dma_free_coherent(dct_device.this_device,inputImageByteSize,inputDMAcpu,inputDMAHandle);
-            dma_free_coherent(dct_device.this_device,outputImageByteSize,outputDMAcpu,outputDMAHandle);
+            dma_free_coherent(dct_device.this_device,inImageMemByteSize,inImageMemDMAcpu,inImageMemDMAHandle);
+            dma_free_coherent(dct_device.this_device,outImageMemByteSize,outImageMemDMAcpu,outImageMemDMAHandle);
             break;
         }
         case IOCTL_DCTSTATUS:
-        {
-            int readError = copy_to_user((uint32_t*)arg,dctStatus,1);
+	{
+	    pr_info("Dev status:%d\n",*dctStatus);
+            int readError = copy_to_user((uint32_t*)arg,dctStatus,4);
             if(readError)
                 pr_err("DCT Driver Error: Reading dct status failed\n");
             break;
@@ -121,8 +186,8 @@ static int __init misc_init(void)
         pr_err("Error: Register of adder driver failed\n");
         return error;
     }
-    
-    error = dma_set_coherent_mask(dct_device.this_device,DMA_BIT_MASK(32));
+   
+    error = dma_set_coherent_mask(dct_device.this_device,DMA_BIT_MASK(31));
     if(error)
     {
         pr_err("Error: Device can not perform DMA with the given mask\n");
@@ -140,6 +205,15 @@ static int __init misc_init(void)
     dctOutputAXIAddr = dctInputAXIAddr + 1;
     dctNumBlocks = dctOutputAXIAddr + 1;
     dctExec = dctNumBlocks + 1;
+    /*
+    pr_info("dctStatus %X\n",(unsigned int*)dctStatus);
+    pr_info("dctInputAXIAddr %X\n",(unsigned int*)dctInputAXIAddr);
+    pr_info("dctOutputAXIAddr %X\n",(unsigned int*)dctOutputAXIAddr);
+    pr_info("dctNumBlocks %X\n",(unsigned int*)dctNumBlocks);
+    pr_info("dctExec %X\n",(unsigned int*)dctExec);
+    */
+    pr_info("DCT Device loaded\n");
+    
     return 0;
 }
 

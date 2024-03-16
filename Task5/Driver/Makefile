@@ -3,8 +3,8 @@
 #
 
 obj-m += misc_dct.o
-#KDIR := /lib/modules/6.2.10-1-aarch64-ARCH/build
-KDIR := /lib/modules/$(shell uname -r)/build
+KDIR := /lib/modules/6.2.10-1-aarch64-ARCH/build
+#KDIR := /lib/modules/$(shell uname -r)/build
 PWD := $(shell pwd)
 
 CC := $(CROSS_COMPILE)gcc

@@ -153,12 +153,15 @@ module mkSobelFilter(SobelFilter);
     Vector#(FILTEREDWIDTH,SobelOperator) filterCores = newVector;
     for(Integer x=0; x<valueOf(FILTEREDDATAWIDTH)/8; x=x+1)
         filterCores[x] <- mkSobelOperator();
+        //filterCores[x] <- mkSobelPassthrough();
         
     rule startComputation (topLevelStatus==Configuration && executeCmd);
         $display("Start Computation chunksCountX:%d, resolutionY:%d inputImageAddress:%d outputImageAddress:%d topLevelStatus:%d",chunksCountX,resolutionY,inputImageAddress,outputImageAddress,topLevelStatus);
         reader.configure(inputImageAddress,chunksCountX,resolutionY);
         Bit#(AXICONFIGDATAWIDTH) numberChunks = chunksCountX*(resolutionY-6);
         writer.configure(outputImageAddress,numberChunks);
+        for(Integer x=0; x<valueOf(FILTEREDDATAWIDTH)/8; x=x+1)
+            filterCores[x].configure(kernelSize);
         topLevelStatus <= Execution;
         executeCmd <= False;
     endrule
@@ -187,6 +190,8 @@ module mkSobelFilter(SobelFilter);
             UInt#(8) oneFilteredPixel <- filterCores[offsetX].getGradMag();
             filteredValues[offsetX] = pack(oneFilteredPixel);
             end
+        //$display("Extract Chunk %d %d %d %d %d %d %d %d %d %d",filteredValues[0],filteredValues[1],filteredValues[2],filteredValues[3],filteredValues[4],filteredValues[5],filteredValues[6],filteredValues[7],filteredValues[8],filteredValues[9]);
+
         writer.setWindow(filteredValues);
     endrule
     

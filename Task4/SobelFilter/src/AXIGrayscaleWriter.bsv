@@ -13,8 +13,9 @@ import BRAMFIFO :: * ;
 import FIFOF :: * ;
 
 typedef enum {
-    Request = 1'b0,
-    Send = 1'b1
+    Request = 2'b00,
+    Send = 2'b01,
+    Response = 2'b10
     } AXIBurstPhase deriving (Bits,Eq);
 
 (* always_ready, always_enabled *)
@@ -101,8 +102,10 @@ module mkAXIGrayscaleWriter(AXIGrayscaleWriter#(addrwidth,datawidth,filterwidth,
     rule endWriteData (axiSendPhase==Send && announedChunksCounter >= announedChunks);
         //$display("Last Beat");
         announedChunksCounter <= 0;
-        axiSendPhase <= Request;
+        axiSendPhase <= Response;
     endrule
+    
+    
        
     method Action configure (Bit#(addrwidth) _outputAddress, Bit#(addrwidth) _numberChunks) if(!validConfig);
         //$display("configure writer");

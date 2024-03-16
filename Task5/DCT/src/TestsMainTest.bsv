@@ -15,8 +15,9 @@ package TestsMainTest;
     import Vector :: *;
 
     typedef enum {
-        ReqAddr = 1'b0,
-        ReqData = 1'b1
+        ReqAddr = 2'b00,
+        ReqData = 2'b01,
+        Resp = 2'b10
         } ResultReceiverStatus deriving (Bits,Eq);
     
     (* synthesize *)
@@ -34,7 +35,7 @@ package TestsMainTest;
 
         //Data AXIs
         BRAM_Configure cfg = defaultValue;
-        cfg.memorySize = 2048;
+        cfg.memorySize = 4096;
         cfg.loadFormat = tagged Hex "hexImage.hex";
         BRAM1PortBE #(Bit#(32), Bit#(128), TDiv#(128,8)) bram <- mkBRAM1ServerBE(cfg);
         BlueAXIBRAM#(32,128,1) memory <- mkBlueAXIBRAM(bram.portA);
@@ -59,16 +60,23 @@ package TestsMainTest;
             Bit#(128) reqData = reqD.data;
             Bool reqLast = reqD.last;
             
-            Vector#(8,Bit#(16)) beat = newVector;
+            Vector#(8,Bit#(16)) bitBeat = newVector;
+            Vector#(8,Int#(16)) intBeat = newVector;
             Integer pixelBitStart = 127;
             for(Integer i=0; i<8; i=i+1)
                 begin
-                beat[i] = reqData[pixelBitStart:pixelBitStart-15];
+                bitBeat[i] = reqData[pixelBitStart:pixelBitStart-15];
                 pixelBitStart = pixelBitStart - 16;
+                intBeat[i] = unpack(bitBeat[i]);
                 end
-            $display("Beat %d %d %d %d %d %d %d %d",beat[0],beat[1],beat[2],beat[3],beat[4],beat[5],beat[6],beat[7]);
+            $display("Beat %d %d %d %d %d %d %d %d",intBeat[0],intBeat[1],intBeat[2],intBeat[3],intBeat[4],intBeat[5],intBeat[6],intBeat[7]);
             if(reqLast==True)
-                resRecStat <= ReqAddr;
+                resRecStat <= Resp;
+        endrule
+        rule respRule (resRecStat==Resp);
+            AXI4_Write_Rs#(1,0) resp = AXI4_Write_Rs{id:0,user:0,resp:OKAY};            
+            resultReceiver.response.put(resp);
+            resRecStat <= ReqAddr;
         endrule
 
         Stmt s = {
@@ -100,7 +108,7 @@ package TestsMainTest;
                 endaction
                 
                 action
-                    let reqA = AXI4_Lite_Write_Rq_Pkg {addr:12, data:8, strb:4'b1111, prot:UNPRIV_SECURE_DATA};
+                    let reqA = AXI4_Lite_Write_Rq_Pkg {addr:12, data:2, strb:4'b1111, prot:UNPRIV_SECURE_DATA};
                     configWrite.request.put(reqA);
                 endaction
                 action
@@ -125,7 +133,8 @@ package TestsMainTest;
                     $display("Status response: %d", result);
                 endaction
                 
-                delay(10000);
+                /*
+                delay(100000);
                 //$display("Next try");
                 action
                     let reqC = AXI4_Lite_Read_Rq_Pkg {addr:0, prot:UNPRIV_SECURE_DATA};
@@ -154,19 +163,64 @@ package TestsMainTest;
                     Int#(32) result = unpack(respC.data);
                     $display("Status response: %d", result);
                 endaction
-                
-                delay(10000);
+                */
+                delay(1000);
 
             endseq
         };
+        
+        Reg#(UInt#(32)) count <- mkRegU;
+        Stmt l = {
+        seq
+            while(count < 20)
+                seq
+                                
+                action
+                    let reqC = AXI4_Lite_Read_Rq_Pkg {addr:0, prot:UNPRIV_SECURE_DATA};
+                    configRead.request.put(reqC);
+                endaction
+                action
+                    let respC <- configRead.response.get();
+                    Int#(32) result = unpack(respC.data);
+                    $display("Status response: %d", result);
+                endaction
+
+                action
+                    let reqA = AXI4_Lite_Write_Rq_Pkg {addr:16, data:1, strb:4'b1111, prot:UNPRIV_SECURE_DATA};
+                    configWrite.request.put(reqA);
+                endaction
+                action
+                    AXI4_Lite_Write_Rs_Pkg respA <- configWrite.response.get();
+                endaction
+                
+                action
+                    let reqC = AXI4_Lite_Read_Rq_Pkg {addr:0, prot:UNPRIV_SECURE_DATA};
+                    configRead.request.put(reqC);
+                endaction
+                action
+                    let respC <- configRead.response.get();
+                    Int#(32) result = unpack(respC.data);
+                    $display("Status response: %d", result);
+                endaction
+                
+                delay(100000);
+                
+                
+                count <= count + 1; 
+                endseq
+        endseq
+        };
+        
         FSM testFSM <- mkFSM(s);
+        FSM repeatFSM <- mkFSM(l);
 
         method Action go();
             testFSM.start();
+            //repeatFSM.start();
         endmethod
 
         method Bool done();
-            return testFSM.done();
+            return testFSM.done(); //&& repeatFSM.done();
         endmethod
     endmodule
 
