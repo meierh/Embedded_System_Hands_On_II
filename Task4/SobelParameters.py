@@ -110,21 +110,6 @@ def computeError(img,kernel,bitwidth):
     error = np.divide(np.abs(rawSobelBlock-intSobelBlock),rawSobelBlock,out=np.zeros_like(rawSobelBlock), where=np.abs(rawSobelBlock)>1e-10)*100
     error = np.max(error)
     return error
-
-'''
-for bitwidth in range(20):
-    error = 0
-    errorSum = 0
-    for k in range(1000):
-        img = randImage()
-        def imgGetter():
-            return img
-        oneError = computeError(img,sobel3/sobel3Div,bitwidth)
-        error = max(error,oneError)
-        errorSum += oneError
-    errorSum /= 100
-    print("Bitwidth: ",bitwidth,":  ",errorSum,"  ",error)
-'''
     
 def getSobelChunks():
     imageX = 10

@@ -1,0 +1,4 @@
+all:
+{
+        Sobel_240MHz_256Burst.bit /* Bitstream file name */
+}

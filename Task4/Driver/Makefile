@@ -2,7 +2,7 @@
 # Helge
 #
 
-obj-m += misc_dct.o
+obj-m += misc_sobel.o
 #KDIR := /lib/modules/6.2.10-1-aarch64-ARCH/build
 KDIR := /lib/modules/$(shell uname -r)/build
 PWD := $(shell pwd)

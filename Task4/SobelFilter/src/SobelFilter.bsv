@@ -10,7 +10,6 @@ import AXIGrayscaleReader :: *;
 import AXIGrayscaleWriter :: *;
 import SobelOperator :: * ;
 
-
 // must be equal to AXICONFIGDATAWIDTH
 typedef 8 AXICONFIGADDRWIDTH;
 typedef 32 AXICONFIGDATAWIDTH;
@@ -21,7 +20,19 @@ typedef 16 AXIIMAGEDATALEN;
 typedef 80 FILTEREDDATAWIDTH;
 typedef 10 FILTEREDWIDTH;
 
-typedef 32 MAXAXIBURSTLEN;
+typedef 256 MAXAXIBURSTLEN;
+
+typedef enum {
+    Configuration = 3'b00,
+    Execution = 3'b01,
+    Finished = 3'b10
+    } TopLevelStatusInfo deriving (Bits,Eq);
+    
+typedef enum {
+    Empty = 3'b00,
+    Filled = 3'b01,
+    HalfRead = 3'b10
+    } HalfStencil deriving (Bits,Eq);
 
 //(* always_ready, always_enabled *)
 interface SobelFilter;
@@ -67,7 +78,7 @@ module mkSobelFilter(SobelFilter);
                 endaction
     endfunction : writeInputAddr
     WriteOperation#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeInputAddrStruct;
-    writeInputAddrStruct = WriteOperation { index:8, fun:writeInputAddr };
+    writeInputAddrStruct = WriteOperation { index:4, fun:writeInputAddr };
     writeInputAddress = tagged Write writeInputAddrStruct;
     configurationOperations = List::cons(writeInputAddress,configurationOperations);
     
@@ -79,7 +90,7 @@ module mkSobelFilter(SobelFilter);
                 endaction
     endfunction : writeOutputAddr
     WriteOperation#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeOutputAddrStruct;
-    writeOutputAddrStruct = WriteOperation { index:16, fun:writeOutputAddr };
+    writeOutputAddrStruct = WriteOperation { index:8, fun:writeOutputAddr };
     writeOutputAddress = tagged Write writeOutputAddrStruct;
     configurationOperations = List::cons(writeOutputAddress,configurationOperations);
     
@@ -91,7 +102,7 @@ module mkSobelFilter(SobelFilter);
                 endaction
     endfunction : writeChunksCountXSize
     WriteOperation#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeChunksCountXStruct;
-    writeChunksCountXStruct = WriteOperation { index:24, fun:writeChunksCountXSize };
+    writeChunksCountXStruct = WriteOperation { index:12, fun:writeChunksCountXSize };
     writeChunksCountX = tagged Write writeChunksCountXStruct;
     configurationOperations = List::cons(writeChunksCountX,configurationOperations);
     
@@ -103,7 +114,7 @@ module mkSobelFilter(SobelFilter);
                 endaction
     endfunction : writeResolutionYSize
     WriteOperation#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeResolutionYStruct;
-    writeResolutionYStruct = WriteOperation { index:32, fun:writeResolutionYSize };
+    writeResolutionYStruct = WriteOperation { index:16, fun:writeResolutionYSize };
     writeResolutionY = tagged Write writeResolutionYStruct;
     configurationOperations = List::cons(writeResolutionY,configurationOperations);
     
@@ -121,7 +132,7 @@ module mkSobelFilter(SobelFilter);
                 endaction
     endfunction : writeKernelSz
     WriteOperation#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeKernelStruct;
-    writeKernelStruct = WriteOperation { index:40, fun:writeKernelSz };
+    writeKernelStruct = WriteOperation { index:20, fun:writeKernelSz };
     writeKernelSize = tagged Write writeKernelStruct;
     configurationOperations = List::cons(writeKernelSize,configurationOperations);
     
@@ -136,7 +147,7 @@ module mkSobelFilter(SobelFilter);
                 endaction
     endfunction : writeExecuteCmd
     WriteOperation#(AXICONFIGADDRWIDTH,AXICONFIGDATAWIDTH) writeExecuteCmdStruct;
-    writeExecuteCmdStruct = WriteOperation { index:48, fun : writeExecuteCmd };
+    writeExecuteCmdStruct = WriteOperation { index:24, fun : writeExecuteCmd };
     writeExecuteCommand = tagged Write writeExecuteCmdStruct;
     configurationOperations = List::cons(writeExecuteCommand,configurationOperations);
     
@@ -146,55 +157,112 @@ module mkSobelFilter(SobelFilter);
 /******************************************************************************************************/
 
 
-/********************************* Image Filtering Registers ******************************************/    
+/********************************* Image Filtering Registers ******************************************/
+    //Create AXI Reader and writer Modules
     AXIGrayscaleReader#(AXICONFIGDATAWIDTH,AXIIMAGEDATAWIDTH,MAXAXIBURSTLEN) reader <- mkAXIGrayscaleReader();
     AXIGrayscaleWriter#(AXICONFIGDATAWIDTH,AXIIMAGEDATAWIDTH,FILTEREDWIDTH,MAXAXIBURSTLEN) writer <- mkAXIGrayscaleWriter();
     
-    Vector#(FILTEREDWIDTH,SobelOperator) filterCores = newVector;
-    for(Integer x=0; x<valueOf(FILTEREDDATAWIDTH)/8; x=x+1)
+    //Create Sobel Cores
+    Vector#(TDiv#(FILTEREDDATAWIDTH,16),SobelOperator) filterCores = newVector;
+    for(Integer x=0; x<valueOf(FILTEREDDATAWIDTH)/16; x=x+1)
         filterCores[x] <- mkSobelOperator();
-        //filterCores[x] <- mkSobelPassthrough();
-        
+
+    //Configure reader and writer and Sobel Cores and start execution
     rule startComputation (topLevelStatus==Configuration && executeCmd);
-        $display("Start Computation chunksCountX:%d, resolutionY:%d inputImageAddress:%d outputImageAddress:%d topLevelStatus:%d",chunksCountX,resolutionY,inputImageAddress,outputImageAddress,topLevelStatus);
+        //$display("Start Computation chunksCountX:%d, resolutionY:%d inputImageAddress:%d outputImageAddress:%d topLevelStatus:%d",chunksCountX,resolutionY,inputImageAddress,outputImageAddress,topLevelStatus);
         reader.configure(inputImageAddress,chunksCountX,resolutionY);
         Bit#(AXICONFIGDATAWIDTH) numberChunks = chunksCountX*(resolutionY-6);
         writer.configure(outputImageAddress,numberChunks);
-        for(Integer x=0; x<valueOf(FILTEREDDATAWIDTH)/8; x=x+1)
+        for(Integer x=0; x<valueOf(FILTEREDDATAWIDTH)/16; x=x+1)
             filterCores[x].configure(kernelSize);
         topLevelStatus <= Execution;
         executeCmd <= False;
     endrule
-        
-    rule insertStencils;
-        //$display("Insert stencil");
+
+    // Pull and insert stencil in two parts
+    Vector#(7,Vector#(AXIIMAGEDATALEN,Reg#(Bit#(8)))) stencilPullReg = newVector;
+    for(Integer y=0; y<7; y=y+1)
+        for(Integer x=0; x<valueOf(AXIIMAGEDATALEN); x=x+1)
+            stencilPullReg[y][x] <- mkRegU;
+    Reg#(HalfStencil) stencilPullState <- mkReg(Empty);
+    
+    rule pullStencil (stencilPullState==Empty);
         Vector#(7,Vector#(AXIIMAGEDATALEN,Bit#(8))) _window <- reader.getWindow();
-        for(Integer offsetX=0; offsetX<valueOf(FILTEREDDATAWIDTH)/8; offsetX=offsetX+1)
+        for(Integer y=0; y<7; y=y+1)
+            for(Integer x=0; x<valueOf(AXIIMAGEDATALEN); x=x+1)
+                stencilPullReg[y][x] <= _window[y][x];
+        stencilPullState <= Filled;
+    endrule
+    
+    //Pull stencil from reader and split and insert into Sobel Cores
+    rule insertStencils (stencilPullState!=Empty);
+        if(stencilPullState==Filled)
             begin
-            Vector#(7,Vector#(7,UInt#(8))) stencil = newVector;
-            for(Integer stencilX=0; stencilX<7; stencilX=stencilX+1)
+            for(Integer offsetX=0; offsetX<valueOf(FILTEREDDATAWIDTH)/16; offsetX=offsetX+1)
                 begin
-                Integer stencilXWind = offsetX + stencilX;
-                for(Integer stencilY=0; stencilY<7; stencilY=stencilY+1)
-                    stencil[stencilY][stencilX] = unpack(_window[stencilY][stencilXWind]);
+                Vector#(7,Vector#(7,UInt#(8))) stencil = newVector;
+                for(Integer stencilX=0; stencilX<7; stencilX=stencilX+1)
+                    begin
+                    Integer stencilXWind = offsetX + stencilX;
+                    for(Integer stencilY=0; stencilY<7; stencilY=stencilY+1)
+                        stencil[stencilY][stencilX] = unpack(stencilPullReg[stencilY][stencilXWind]);
+                    end
+                filterCores[offsetX].insertStencil(stencil);
                 end
-            filterCores[offsetX].insertStencil(stencil);
+            stencilPullState <= HalfRead;
+            end
+        else
+            begin
+            for(Integer offsetX=0; offsetX<valueOf(FILTEREDDATAWIDTH)/16; offsetX=offsetX+1)
+                begin
+                Vector#(7,Vector#(7,UInt#(8))) stencil = newVector;
+                for(Integer stencilX=0; stencilX<7; stencilX=stencilX+1)
+                    begin
+                    Integer stencilXWind = offsetX + valueOf(FILTEREDDATAWIDTH)/16 + stencilX;
+                    for(Integer stencilY=0; stencilY<7; stencilY=stencilY+1)
+                        stencil[stencilY][stencilX] = unpack(stencilPullReg[stencilY][stencilXWind]);
+                    end
+                filterCores[offsetX].insertStencil(stencil);
+                end
+            stencilPullState <= Empty;
             end        
     endrule
     
-    rule extractStencils;
-        //$display("Extract stencil");
-        Vector#(FILTEREDWIDTH,Bit#(8)) filteredValues = newVector;
-        for(Integer offsetX=0; offsetX<valueOf(FILTEREDDATAWIDTH)/8; offsetX=offsetX+1)
+    // Extract and push stencil in two parts
+    Vector#(FILTEREDWIDTH,Reg#(Bit#(8))) filteredResReg = newVector;
+    for(Integer x=0; x<valueOf(FILTEREDWIDTH); x=x+1)
+        filteredResReg[x] <- mkRegU;
+    Reg#(HalfStencil) stencilPushState <- mkReg(Empty);
+    
+    rule extract (stencilPushState!=Filled);
+        if(stencilPushState==Empty)
             begin
-            UInt#(8) oneFilteredPixel <- filterCores[offsetX].getGradMag();
-            filteredValues[offsetX] = pack(oneFilteredPixel);
+            for(Integer offsetX=0; offsetX<valueOf(FILTEREDDATAWIDTH)/16; offsetX=offsetX+1)
+                begin
+                UInt#(8) oneFilteredPixel <- filterCores[offsetX].getGradMag();
+                filteredResReg[offsetX] <= pack(oneFilteredPixel);
+                end
+            stencilPushState <= HalfRead;
             end
-        //$display("Extract Chunk %d %d %d %d %d %d %d %d %d %d",filteredValues[0],filteredValues[1],filteredValues[2],filteredValues[3],filteredValues[4],filteredValues[5],filteredValues[6],filteredValues[7],filteredValues[8],filteredValues[9]);
-
-        writer.setWindow(filteredValues);
+        else
+            begin
+            for(Integer offsetX=0; offsetX<valueOf(FILTEREDDATAWIDTH)/16; offsetX=offsetX+1)
+                begin
+                UInt#(8) oneFilteredPixel <- filterCores[offsetX].getGradMag();
+                filteredResReg[offsetX+valueOf(FILTEREDDATAWIDTH)/16] <= pack(oneFilteredPixel);
+                end
+            stencilPushState <= Filled;
+            end
     endrule
     
+    rule pushStencil (stencilPushState==Filled);
+        Vector#(FILTEREDWIDTH,Bit#(8)) filteredValues = newVector;
+        for(Integer x=0; x<valueOf(FILTEREDWIDTH); x=x+1)
+            filteredValues[x] = filteredResReg[x];
+        writer.setWindow(filteredValues);
+        stencilPushState <= Empty;
+    endrule
+        
     rule finishExec(topLevelStatus==Execution && writer.done());
         $display("------------------------Sobel Done---------------------------");
         topLevelStatus <= Configuration;

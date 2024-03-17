@@ -1,0 +1,82 @@
+Task 4
+    Find good bitwidth for fixedwidth integers
+        Minimum value in kernel 1/1280
+        11 bits precision would lead to min value 1/2048
+        12 bits precision would lead to min value 1/4096
+        Choose 12 bits for better representation
+        Max Value (512*2+1024)*255*2 = 1044480 <-> 21 bits with sign bit -- (kernel)*max(uint8)*twodirs;
+        
+    Testing of Sobel Core correctness in Bluespec
+        Look at printout of python3 HexImageCreate.py
+        Look at printout of make in SobelFilter
+        Compare to verify correctness
+        Choose different numbers for kernel size at TestsMainTest.bsv line 134 and in HexImageCreate.py at line 96 exchange the numbers for 3,5 or 7
+        => All Results match
+               
+        --------------------------------------
+    Testing of DCT Core correctness in Hardware
+        Load Bitstream Sobel_230MHz.bit.bin via LoadBitstream.sh like in the other tasks
+        Compile Driver using make in Driver/
+        Load driver insmod misc_sobel.ko
+        Compile Application in Application/build using cmake .. and make
+        
+        Execute Application ./Application in Application/build
+            Results can be seen in "Application_printout" file
+            1) testFPGA subFunction of main():
+                Print out of hardware results of known testcases; Optionally choose the kernel type with the kernelType variable in testFPGA() function
+            2) evaluateIPCoreRuntime subFunction of main():
+                Runtime of hardware Sobel with printout (Look in Application_printout file under "Test runtime of FPGA")
+            3) evaluateCPURuntime subFunction of main():
+                Runtime of software Sobel with printout (Look in Application_printout file under "Test runtime of CPU")
+                Efficient implementation by opencv
+                
+            Result: FPGA several orders of magnitude faster than CPU
+            For FullHD on hardware (1920 x 1080) ~ 32768 blocks (8x8) => ~16 milliseconds / 62.5 fps (First AXI Read to last AXI Write)
+            Look at Application_printout for more data
+
+        On Demand: Process image
+            On Hardware : ./Application inputImagePath outputImagePath 
+                            (./Application ../Testimage.png ../TestimageResult.png)
+            
+        Discussion of Bluespec implementation and performance
+            Sobel Filter assumes that the image is splitted into chunks of size 16. Starting from the left top corner a chunk spans across 16 pixels in a row. Multiple pixels together form a mulit-stencil that can be processed by multiple Sobel filter modules.
+            Succesively new chunks of pixels are read and the multi-stencil moves downward till the end row of the image is reached. If that is the case the chunks move back to the top and 10 pixels to the right. This way the image is moved across till the bottom right corner is reached.
+            The sobel filter cores produce 10 result values. These values are returned in a 16 byte vector aligned to the left side so that 6 bytes stay empty.
+            
+            The application has to split up the image into chunks and reconstruct the filtered image from the chunks
+            
+            The utilization limits of the given FPGA does not allow for 10 Sobel Filter modules working in parallel. As a result 5 modules are used that process one chunk of data in two cycles.
+            This is the bottleneck of the implementation. One beat of data read by the AXI connect is processed in two cycles. As a result the number of beats per burst does not really matter for the speed of the hardware. It is set to the maximum value of 256 beats without any expectation of speedup because of that.
+            
+        Discussion of Maximum frequence
+            The given hardware allows up to 240MHz frequence. The worst negative slack with this frequence is as follows:
+                240hz - 0.0003 ns
+                
+            The utilization in this state is
+            Type    Used    Given      Percentage
+            LUT     14041	70560	   19.899376
+            LUTRAM	69      28800	   0.23958334
+            FF      11367   141120	   8.054848
+            BRAM	16      216	       7.4074073
+            DSP     302     360	       83.888885
+            BUFG	2       196	       1.0204082
+            MMCM	1       3	       33.333336
+            
+            This utilization table looks like the compromise to process a 16 byte chunk in two cycles is not necessary. In reality the utilization is quite erratic and solutions that process the 16 byte chunk in one cycle are regularly not doable.
+            
+        Performance (Latency / fps)
+            The file Application_printout shows that the FPGA is faster than the CPU implementation for large images. Below ~1 Megapixel the CPU is faster. For larger images the FPGA is way faster although the CPU implementation is very optimized by the maintainers of opencv. The first time value for the CPU benchmark is a startup outlier.
+            
+            The fps for a Full HD image with the fpga is > 83
+            
+        Discussion of Maximum frequence
+            The given frequence allows up to 170Mhz
+            Any experiments are done with this bitstream
+            
+            The worst negative slack for various Frequences
+                110Mhz - 2.1 ns
+                120Mhz - 0.8 ns
+                130Mhz - 0.7 ns
+                150Mhz - 0.05 ns
+                160Mhz - 0.15 ns
+                170Mhz - 0.0003 ns

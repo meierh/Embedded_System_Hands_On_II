@@ -116,8 +116,8 @@ module mkDCT(DCT);
     Vector#(SIMULTBLOCKS,DCTOperator) dctOperators = newVector;
     for(Integer i=0; i<valueOf(SIMULTBLOCKS); i=i+1)
         dctOperators[i] <- mkDCTOperator();
-        //dctOperators[i] <- mkDCTPassthrough();
         
+    //Start Computation at execution Cmd
     rule startComputation (topLevelStatus==Configuration && executeCmd);
         $display("Start Computation numberBlocks:%d, inputImageAddress:%d outputImageAddress:%d topLevelStatus:%d",numberBlocks,inputImageAddress,outputImageAddress,topLevelStatus);
         executeCmd <= False;
@@ -126,8 +126,8 @@ module mkDCT(DCT);
         writer.configure(outputImageAddress,numberBlocks);
     endrule
     
+    //Continuously feed blocks into dctOperators 
     rule insertData(topLevelStatus==Execution);
-        //$display("Insert Multi Block");
         Vector#(SIMULTBLOCKS,Vector#(8,Vector#(8,Bit#(8)))) multiBlocks <- reader.getMultiBlock();
         Vector#(SIMULTBLOCKS,Vector#(8,Vector#(8,UInt#(8)))) multiBlocksInt = newVector;
         for(Integer i=0; i<valueOf(SIMULTBLOCKS); i=i+1)
@@ -138,8 +138,8 @@ module mkDCT(DCT);
             dctOperators[i].setBlock(multiBlocksInt[i]);
     endrule
     
+    //Continuously pull blocks out of dctOperators 
     rule extractData(topLevelStatus==Execution);
-        //$display("Extract Multi Block");
         Vector#(SIMULTBLOCKS,Vector#(8,Vector#(8,Int#(16)))) multiBlocksInt = newVector;
         for(Integer i=0; i<valueOf(SIMULTBLOCKS); i=i+1)
             multiBlocksInt[i] <- dctOperators[i].getBlock();        

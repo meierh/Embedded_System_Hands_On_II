@@ -26,3 +26,18 @@ Task 3.1
     Configure Kernel:           ARCH=arm64 make menuconfig
     Set:                        Device Drivers -> Network device support -> USB Network Adapters -> Realtek RTL8152/RTL8153 Based USB Ethernet Adapters ; press Y for built-in
     Compile:                    make ARCH=arm64
+
+    Link compiled kernel build/ to /lib/modules/6.2.10-1-aarch64-ARCH/build
+    
+    Driver for adder from Task 2 in Subfolder AdderDriver/
+    Load ESHO2_Task2.bit.bin from Task2 via LoadBitstream.sh from Task2
+    
+    Compile driver by executing make in AdderDriver
+    Load Driver using "insmod misc_adder.ko" in AdderDriver as root
+    Check for loaded driver using dmesg
+    
+    Compile adderApp using "gcc adderApp.c -o adderApp" in AdderDriver
+    Execute ./adderApp in AdderDriver/ as root
+    Check results of adder
+    
+    

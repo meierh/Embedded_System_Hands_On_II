@@ -15,6 +15,10 @@ typedef enum {
     Read = 2'b01,
     Shift = 2'b10
     } AXIBurstStoragePhase deriving (Bits,Eq);
+
+/* Module that reads image chunks from AXI and returns them ordered in stencils formed (16x7)
+ * Must be configured with the number of rows of the padded image and the number of chunks
+*/
     
 (* always_ready, always_enabled *)
 interface AXIGrayscaleReader#(numeric type addrwidth, numeric type datawidth, numeric type maxBurstLen);
@@ -32,7 +36,6 @@ module mkAXIGrayscaleReader(AXIGrayscaleReader#(addrwidth,datawidth,maxBurstLen)
     Reg#(Bit#(addrwidth)) inputImageAddress <- mkReg(0);
     Reg#(Bit#(addrwidth)) chunksNumberX <- mkReg(0);
     Reg#(Bit#(addrwidth)) resolutionY <- mkReg(0);
-    //Reg#(Bit#(addrwidth)) rowNumber <- mkReg(0);
     Reg#(Bit#(addrwidth)) chunkNumber <- mkReg(0);
     Reg#(Bool) validConfig <- mkReg(False);
 
@@ -46,6 +49,7 @@ module mkAXIGrayscaleReader(AXIGrayscaleReader#(addrwidth,datawidth,maxBurstLen)
     Reg#(Bit#(addrwidth)) addrOffset <- mkReg(0);
     Reg#(AXIBurstStoragePhase) axiLoadPhase <- mkReg(Request);
 
+    // Request next burst
     rule requestData (validConfig && axiLoadPhase==Request /*&& !chunkFIFO.notEmpty*/);
         if(chunkCounter < chunkNumber)
             begin
@@ -70,8 +74,7 @@ module mkAXIGrayscaleReader(AXIGrayscaleReader#(addrwidth,datawidth,maxBurstLen)
     endrule
 
     Reg#(Bit#(addrwidth)) readRowCount <- mkReg(0);
-    //Reg#(Bit#(addrwidth)) chunksCountX <- mkReg(0);
-    
+    // Read one beat from burst
     rule readData (axiLoadPhase==Read);
         let readResponse <- axiDataRd.response.get();
         Bit#(datawidth) responseData  = readResponse.data;
@@ -81,7 +84,6 @@ module mkAXIGrayscaleReader(AXIGrayscaleReader#(addrwidth,datawidth,maxBurstLen)
             begin
             lastRow = True;
             readRowCount <= 0;
-            //chunksCountX <= chunksCountX + 1;
             end
         else
             begin
@@ -104,6 +106,7 @@ module mkAXIGrayscaleReader(AXIGrayscaleReader#(addrwidth,datawidth,maxBurstLen)
             axiLoadPhase <= Request;
     endrule
 
+    // Stencil storage
     Vector#(7,Vector#(TDiv#(datawidth,8),Reg#(Bit#(8)))) window = newVector;
     for(Integer i=0; i<7; i=i+1)
         for(Integer j=0; j<valueOf(datawidth)/8; j=j+1)
@@ -163,10 +166,8 @@ module mkAXIGrayscaleReader(AXIGrayscaleReader#(addrwidth,datawidth,maxBurstLen)
         inputImageAddress <= _imageAddress;
         chunksNumberX <= _chunksNumberX;
         resolutionY <= _resolutionY;
-        //rowNumber <= resolutionY;
         chunkNumber <= _chunksNumberX*_resolutionY;
         readRowCount <= 0;
-        //chunksCountX <= 0;
         insertionRow <= 0;
         chunkCounter <= 0;
         axiLoadPhase <= Request;

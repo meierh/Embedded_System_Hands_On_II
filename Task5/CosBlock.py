@@ -167,7 +167,7 @@ def computeError(imageGetter,bitwidth):
     weightedRelError = np.abs(np.multiply(relError,np.abs(rawDCTBlock[0])));
     sumWeightedRelError = np.sum(np.abs(rawDCTBlock[0]))
     if sumWeightedRelError!=0:
-        weightedRelError = weightedRelError / np.sum(rawDCTBlock[0])
+        weightedRelError = weightedRelError / np.abs(np.sum(rawDCTBlock[0]))
     #print(weightedRelError);
     maxError = np.max(weightedRelError)
     #print(maxError)
@@ -194,12 +194,6 @@ def linearImage(k=1):
             img[y][x] = np.clip(img[y][x],0,255)
     return img
 
-
-#print(computeIntCosBlock(16))
-#print(computeIntCBlock(16))
-#print(computeCosBlock())
-
-
 def findBitwidthErrors():
     for bitwidth in range(20):
         maxError = 0
@@ -214,11 +208,6 @@ def findBitwidthErrors():
             avgError += oneAvgError
         avgError /= numTrials
         print("Bitwidth: ",bitwidth,":  ",avgError,"  ",maxError)
-        
-findBitwidthErrors()
-
-
-#cosBlock = computeCosBlock()
 
 def visualizeAsUnsiged(image):
     print(type(image))
@@ -246,8 +235,15 @@ def multiBlockImage(num=8):
 np.set_printoptions(precision=2)
 np.set_printoptions(suppress=True)
 
-print(computeIntCosBlock(11))
+print("Find good fixed precision values")
+findBitwidthErrors()
+print()
 
+print("CosBlock Values for 11 bits precision")
+print(computeIntCosBlock(11)[0])
+print()
+
+print("Compute results for first testcase")
 img = imageBlock2()
 print("Block")
 print(img)
@@ -257,7 +253,9 @@ print(emulDCTRes)
 preciseDCTRes = preciseDCT(img)
 print("preciseDCTRes");
 print(preciseDCTRes)
+print()
 
+print("Compute results for second testcase")
 img = imageBlockMax()
 print("Block")
 print(img)
@@ -267,3 +265,7 @@ print(emulDCTRes)
 preciseDCTRes = preciseDCT(img)
 print("preciseDCTRes");
 print(preciseDCTRes)
+print()
+
+print(rawDCT(C,img,computeCosBlock()))
+print(computeCosBlock())

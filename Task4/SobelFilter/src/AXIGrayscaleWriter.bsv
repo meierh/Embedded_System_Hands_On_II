@@ -8,9 +8,8 @@ import AXI4_Types :: * ;
 import AXI4_Master :: * ;
 import MIMO :: *;
 import GetPut :: *;
-import BRAMFIFO :: * ;
-//import MIMO :: * ;
 import FIFOF :: * ;
+import BRAMFIFO :: * ;
 
 typedef enum {
     Request = 2'b00,
@@ -105,7 +104,10 @@ module mkAXIGrayscaleWriter(AXIGrayscaleWriter#(addrwidth,datawidth,filterwidth,
         axiSendPhase <= Response;
     endrule
     
-    
+    rule responseData (axiSendPhase==Response);
+        AXI4_Write_Rs#(1,0) resp <- axi4_write_response(axiDataWr);
+        axiSendPhase <= Request;
+    endrule
        
     method Action configure (Bit#(addrwidth) _outputAddress, Bit#(addrwidth) _numberChunks) if(!validConfig);
         //$display("configure writer");

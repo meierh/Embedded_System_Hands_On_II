@@ -84,7 +84,7 @@ package TestsMainTest;
         Stmt s = {
             seq
                 action
-                    let reqC = AXI4_Lite_Read_Rq_Pkg {addr:8'b00000000, prot:UNPRIV_SECURE_DATA};
+                    let reqC = AXI4_Lite_Read_Rq_Pkg {addr:0, prot:UNPRIV_SECURE_DATA};
                     configRead.request.put(reqC);
                 endaction
                 action
@@ -95,7 +95,7 @@ package TestsMainTest;
                 
                 //Input address
                 action
-                    let reqA = AXI4_Lite_Write_Rq_Pkg {addr:8'b00001000, data:0, strb:4'b1111, prot:UNPRIV_SECURE_DATA};
+                    let reqA = AXI4_Lite_Write_Rq_Pkg {addr:4, data:0, strb:4'b1111, prot:UNPRIV_SECURE_DATA};
                     configWrite.request.put(reqA);
                 endaction
                 action
@@ -104,7 +104,7 @@ package TestsMainTest;
 
                 //Output address
                 action
-                    let reqA = AXI4_Lite_Write_Rq_Pkg {addr:8'b00010000, data:1024, strb:4'b1111, prot:UNPRIV_SECURE_DATA};
+                    let reqA = AXI4_Lite_Write_Rq_Pkg {addr:8, data:1024, strb:4'b1111, prot:UNPRIV_SECURE_DATA};
                     configWrite.request.put(reqA);
                 endaction
                 action
@@ -113,7 +113,7 @@ package TestsMainTest;
                 
                 //Chunk Count X
                 action
-                    let reqA = AXI4_Lite_Write_Rq_Pkg {addr:8'b00011000, data:2, strb:4'b1111, prot:UNPRIV_SECURE_DATA};
+                    let reqA = AXI4_Lite_Write_Rq_Pkg {addr:12, data:2, strb:4'b1111, prot:UNPRIV_SECURE_DATA};
                     configWrite.request.put(reqA);
                 endaction
                 action
@@ -122,7 +122,7 @@ package TestsMainTest;
                 
                 //Resolution Y
                 action
-                    let reqA = AXI4_Lite_Write_Rq_Pkg {addr:8'b00100000, data:12, strb:4'b1111, prot:UNPRIV_SECURE_DATA};
+                    let reqA = AXI4_Lite_Write_Rq_Pkg {addr:16, data:12, strb:4'b1111, prot:UNPRIV_SECURE_DATA};
                     configWrite.request.put(reqA);
                 endaction
                 action
@@ -131,7 +131,7 @@ package TestsMainTest;
                 
                 //Kernel Size
                 action
-                    let reqA = AXI4_Lite_Write_Rq_Pkg {addr:8'b00101000, data:2, strb:4'b1111, prot:UNPRIV_SECURE_DATA};
+                    let reqA = AXI4_Lite_Write_Rq_Pkg {addr:20, data:0, strb:4'b1111, prot:UNPRIV_SECURE_DATA};
                     configWrite.request.put(reqA);
                 endaction
                 action
@@ -140,7 +140,7 @@ package TestsMainTest;
                 
                 //Execute
                 action
-                    let reqA = AXI4_Lite_Write_Rq_Pkg {addr:8'b00110000, data:1, strb:4'b1111, prot:UNPRIV_SECURE_DATA};
+                    let reqA = AXI4_Lite_Write_Rq_Pkg {addr:24, data:1, strb:4'b1111, prot:UNPRIV_SECURE_DATA};
                     configWrite.request.put(reqA);
                 endaction
                 action
@@ -149,7 +149,7 @@ package TestsMainTest;
                 
                 //Status
                 action
-                    let reqC = AXI4_Lite_Read_Rq_Pkg {addr:8'b00000000, prot:UNPRIV_SECURE_DATA};
+                    let reqC = AXI4_Lite_Read_Rq_Pkg {addr:0, prot:UNPRIV_SECURE_DATA};
                     configRead.request.put(reqC);
                 endaction
                 action
@@ -162,7 +162,7 @@ package TestsMainTest;
                 //$display("Next try");
                 //Status
                 action
-                    let reqC = AXI4_Lite_Read_Rq_Pkg {addr:8'b00000000, prot:UNPRIV_SECURE_DATA};
+                    let reqC = AXI4_Lite_Read_Rq_Pkg {addr:0, prot:UNPRIV_SECURE_DATA};
                     configRead.request.put(reqC);
                 endaction
                 action
@@ -173,7 +173,7 @@ package TestsMainTest;
                 
                 //Execute
                 action
-                    let reqA = AXI4_Lite_Write_Rq_Pkg {addr:8'b00110000, data:1, strb:4'b1111, prot:UNPRIV_SECURE_DATA};
+                    let reqA = AXI4_Lite_Write_Rq_Pkg {addr:24, data:1, strb:4'b1111, prot:UNPRIV_SECURE_DATA};
                     configWrite.request.put(reqA);
                 endaction
                 action

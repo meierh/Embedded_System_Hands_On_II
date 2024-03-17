@@ -1,0 +1,4 @@
+all:
+{
+        DCT_170MHz.bit /* Bitstream file name */
+}

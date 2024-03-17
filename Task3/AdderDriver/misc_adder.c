@@ -11,6 +11,8 @@
 
 static char* adderBase = NULL;
 static int32_t* adderBaseInt32;
+static int32_t* adder_ab;
+static int32_t* adder_c;
 static int errorCode;
 
 static long add_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
@@ -21,10 +23,10 @@ static long add_ioctl(struct file *f, unsigned int cmd, unsigned long arg)
     switch(cmd)
     {
         case IOCTL_ADD:
-	    errorCode = copy_from_user(adderBaseInt32,ab,2);
+	    errorCode = copy_from_user(adder_ab,ab,2*ADDER_REGS_SIZE);
 	    if(errorCode)
 		    pr_err("Adder Error: Writing summands a and b failed\n");
-	    errorCode = copy_to_user(c,adderBaseInt32+2,1);
+	    errorCode = copy_to_user(c,adder_c,1*ADDER_REGS_SIZE);
 	    if(errorCode)
 		    pr_err("Adder Error: Reading result c failed\n");
 	    break;
@@ -64,6 +66,8 @@ static int __init misc_init(void)
 	return errorCode;
     }
     adderBaseInt32 = (int32_t*) adderBase;
+    adder_ab = adderBaseInt32;
+    adder_c = adderBaseInt32+2;
     pr_info("Misc Adder Driver loaded\n");
     return 0;
 }

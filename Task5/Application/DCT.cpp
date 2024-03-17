@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include "DCT.h"
 
-std::unique_ptr<cv::Mat> applyDCTPassthrough(cv::Mat input)
+std::unique_ptr<cv::Mat> applyDCT(cv::Mat input, ComputeMode mode)
 {
     int imageType = input.type();
     if(imageType!=CV_8UC1)
@@ -17,8 +17,17 @@ std::unique_ptr<cv::Mat> applyDCTPassthrough(cv::Mat input)
     std::cout<<"Transfered Grayscale 2d-array to DCT blocks!"<<std::endl;
     
     ImageBlocks<int16_t> dctCoeffBlocks;
-    hardwareDCT(grayScaleBlocks,dctCoeffBlocks);
-    std::cout<<"Hardware DCT Filter!"<<std::endl;
+    if(mode==ComputeMode::Hardware)
+    {
+        hardwareDCT(grayScaleBlocks,dctCoeffBlocks);
+        std::cout<<"Hardware DCT Filter!"<<std::endl;
+    }
+    else
+    {
+	dctCoeffBlocks.reset(grayScaleBlocks.getBlockRows(),grayScaleBlocks.getBlockCols());
+        softwareDCT(grayScaleBlocks.getData(),dctCoeffBlocks.getData());
+        std::cout<<"Software DCT Filter!"<<std::endl;
+    }
     
     std::unique_ptr<Array2D<int16_t>> grayScaleDctCoeffs = dctCoeffBlocks.reconstructImage();
     std::cout<<"Reconstruct dct to grayscale image!"<<std::endl;
@@ -136,7 +145,6 @@ void ImageBlocks<T>::reset(uint blockRows, uint blockCols)
 template<typename T>
 void ImageBlocks<T>::init(uint blockRows, uint blockCols)
 {
-    //std::cout<<"Init ImageBlocks: "<<blockRows<<" "<<blockCols<<std::endl;
     this->blockRows = blockRows;
     this->blockCols = blockCols;
     data.resize(blockCols*blockRows*64);
@@ -145,12 +153,8 @@ void ImageBlocks<T>::init(uint blockRows, uint blockCols)
 template<typename T>
 void ImageBlocks<T>::array2DToBlockData(const Array2D<T>& array, std::vector<T>& data)
 {
-    //std::cout<<"array2DToBlockData "<<array.getCols()<<" "<<array.getRows()<<" | "<<data.size()<<std::endl;
     if(data.size()!=array.getCols()*array.getRows())
         throw std::invalid_argument("Size mismatch!");
-    
-    //std::cout<<"Size ("<<blockRows<<","<<blockCols<<")"<<std::endl;
-    std::cout<<"array(0,0):"<<int(array(0,0))<<std::endl;
     
     uint insertIndex=0;
     for(uint blockColInd=0; blockColInd<blockCols; blockColInd++)
@@ -160,15 +164,12 @@ void ImageBlocks<T>::array2DToBlockData(const Array2D<T>& array, std::vector<T>&
             uint blockOffsetCol = blockColInd*8;
             uint blockOffsetRow = blockRowInd*8;
             
-            //std::cout<<"Block ("<<blockRowInd<<","<<blockColInd<<")"<<blockColInd*blockCols+blockRowInd<<" offset: ("<<blockOffsetRow<<","<<blockOffsetCol<<")"<<std::endl;
-            
             for(uint pxLocCol=0; pxLocCol<8; pxLocCol++)
             {
                 for(uint pxLocRow=0; pxLocRow<8; pxLocRow++)
                 {
                     uint col = blockOffsetCol+pxLocCol;
                     uint row = blockOffsetRow+pxLocRow;
-                    //std::cout<<"("<<row<<","<<col<<") -> "<<insertIndex<<std::endl;
                     T px = array(row,col);
                     data[insertIndex] = px;
                     insertIndex++;
@@ -182,8 +183,6 @@ void ImageBlocks<T>::array2DToBlockData(const Array2D<T>& array, std::vector<T>&
         std::cout<<insertIndex<<"!="<<int(data.size())<<std::endl;
         throw std::invalid_argument("Insertion span mismatch!");
     }
-    std::cout<<"data[0]:"<<int(data[0])<<std::endl;
-    //throw std::invalid_argument("Temp Stop");
 }
 
 template<typename T>
@@ -191,8 +190,6 @@ void ImageBlocks<T>::blockDataToArray2D(const std::vector<T>& data, Array2D<T>& 
 {
     if(data.size()!=array.getCols()*array.getRows())
         throw std::invalid_argument("Size mismatch!");
-    
-    std::cout<<"data[0]:"<<int(data[0])<<std::endl;
     
     uint insertIndex=0;
     for(uint blockColInd=0; blockColInd<blockCols; blockColInd++)
@@ -217,8 +214,6 @@ void ImageBlocks<T>::blockDataToArray2D(const std::vector<T>& data, Array2D<T>& 
     
     if(insertIndex!=data.size())
         throw std::invalid_argument("Insertion span mismatch!");
-    
-    std::cout<<"array(0,0):"<<int(array(0,0))<<std::endl;
 }
 
 template<typename T>
@@ -238,8 +233,6 @@ void passThroughFilter(ImageBlocks<uchar>& input, ImageBlocks<int16_t>& output)
     {
         *(outputDataPtr+totalInd) = *(inputDataPtr+totalInd);
     }
-    std::cout<<"*(inputDataPtr+0):"<<int(*(inputDataPtr+0))<<std::endl;
-    std::cout<<"*(outputDataPtr+0):"<<int(*(outputDataPtr+0))<<std::endl;
 }
 
 void hardwareDCT(ImageBlocks<uchar>& input, ImageBlocks<int16_t>& output)
@@ -250,8 +243,8 @@ void hardwareDCT(ImageBlocks<uchar>& input, ImageBlocks<int16_t>& output)
     int fd_dct = open("/dev/misc_dct", O_RDWR);
     if(fd_dct<0)
     {
-	printf("Cannot open dct device\n");
-	throw std::logic_error("Failed to open dct device");
+        printf("Cannot open dct device\n");
+        throw std::logic_error("Failed to open dct device");
     }
 
     ioctl(fd_dct,IOCTL_DCTWAIT);
@@ -264,7 +257,7 @@ void hardwareDCT(ImageBlocks<uchar>& input, ImageBlocks<int16_t>& output)
     ioctl(fd_dct,IOCTL_DCTDMAMALLOC);
 
     //Transfer input image data
-    std::vector<uint8_t> inputData = input.getData();
+    std::vector<uint8_t>& inputData = input.getData();
     rotate128Beat(inputData);
     ioctl(fd_dct,IOCTL_DCTINPUTDATA,inputData.data());
     
@@ -275,7 +268,7 @@ void hardwareDCT(ImageBlocks<uchar>& input, ImageBlocks<int16_t>& output)
     ioctl(fd_dct,IOCTL_DCTWAIT);
    
     //Transfer output image data
-    std::vector<int16_t> outputData = output.getData();
+    std::vector<int16_t>& outputData = output.getData();
     ioctl(fd_dct,IOCTL_DCTOUTPUTDATA,outputData.data());
     rotate128Beat(outputData);
 
@@ -311,4 +304,52 @@ void rotate128Beat(std::vector<int16_t>& data)
 	for(uint byteInd=0; byteInd<8; byteInd++)
 	    data[beatInd+byteInd] = rotateBeat[byteInd];
     }
+}
+
+void softwareDCT(const std::vector<uint8_t>& dataIn, std::vector<int16_t>& dataOut)
+{
+    if(dataIn.size()!=dataOut.size())
+        throw std::logic_error("Array size mismatch!");
+    if(dataIn.size()%64!=0)
+        throw std::logic_error("Block size mismatch!");
+    
+    constexpr double pi = 3.14159265358979323846;
+    
+    std::array<std::array<double,8>,8> cosinusBlock;
+    std::array<double,8> C;
+    for(uint i=0; i<8; i++)
+    {
+        C[i] = (i==0)?1.0/std::sqrt(2):1.0;
+        for(uint j=0; j<8; j++)
+        {
+            cosinusBlock[i][j] = std::cos(((2.0*i+1)*j*pi)/16);
+        }
+    }   
+     
+    auto toFlat = [](uint y, uint x){return y*8+x;};
+    #pragma omp parallel for
+    for(uint blockOffset=0; blockOffset<dataIn.size(); blockOffset+=64)
+    {
+        for(uint v=0; v<8; v++)
+        {
+            for(uint u=0; u<8; u++)
+            {
+                int16_t& value = dataOut[blockOffset+toFlat(v,u)];
+                double valueFloat = 0;
+                for(uint y=0; y<8; y++)
+                {
+                    for(uint x=0; x<8; x++)
+                    {
+                        double pixel = dataIn[blockOffset+toFlat(y,x)];
+                        pixel = pixel*cosinusBlock[x][u]*cosinusBlock[y][v];
+                        valueFloat += pixel;
+                    }
+                }
+                valueFloat *= C[u]*C[v]*0.25;
+                value = valueFloat;
+            }
+        }
+    }
+    
+    
 }

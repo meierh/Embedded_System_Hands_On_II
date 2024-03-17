@@ -5,10 +5,9 @@ import Vector :: * ;
 import FIFO :: * ;
 import Real :: * ;
 import SobelTypes :: * ;
-import BRAMFIFO :: * ;
 import FIFOF :: * ;
 
-typedef 22 FIXEDWIDTH;
+typedef 21 FIXEDWIDTH;
 
 Integer fifoDepth = 1;
 
@@ -50,11 +49,11 @@ module mkSobelOperator(SobelOperator);
     
     Reg#(Vector#(7,Vector#(7,Int#(FIXEDWIDTH)))) kernel <- mkRegU();
     
-    FIFOF#(Vector#(7,Vector#(7,Int#(FIXEDWIDTH)))) imageStencil <- mkSizedBRAMFIFOF(fifoDepth*10);
+    FIFOF#(Vector#(7,Vector#(7,Int#(FIXEDWIDTH)))) imageStencil <- mkSizedFIFOF(fifoDepth);
 
 // Multiply kernel with pixel stencil    
-    FIFOF#(Vector#(7,Vector#(7,Int#(FIXEDWIDTH)))) multipled_x <- mkSizedBRAMFIFOF(fifoDepth);
-    FIFOF#(Vector#(7,Vector#(7,Int#(FIXEDWIDTH)))) multipled_y <- mkSizedBRAMFIFOF(fifoDepth);
+    FIFOF#(Vector#(7,Vector#(7,Int#(FIXEDWIDTH)))) multipled_x <- mkSizedFIFOF(fifoDepth);
+    FIFOF#(Vector#(7,Vector#(7,Int#(FIXEDWIDTH)))) multipled_y <- mkSizedFIFOF(fifoDepth);
 
     rule multiply;
         Vector#(7,Vector#(7,Int#(FIXEDWIDTH))) _imageStencil = imageStencil.first;
@@ -164,13 +163,18 @@ module mkSobelOperator(SobelOperator);
         
         //$display("_sobel_x %d",_sobel_x);
         //$display("_sobel_y %d",_sobel_y);
-        
+        /*
         Int#(32) extSobelX = signExtend(_sobel_x);
         Int#(32) extSobelY = signExtend(_sobel_y);
         Int#(32) extSobel = extSobelX+extSobelY;
         if(extSobel<0)
             extSobel = -1*extSobel;
         Bit#(32) bSobel = pack(extSobel);
+        */
+        Int#(FIXEDWIDTH) sobel = _sobel_x + _sobel_y;
+        if(sobel<0)
+            sobel = -1*sobel;
+        Bit#(FIXEDWIDTH) bSobel = pack(sobel);
         bSobel = bSobel >> 12;
         Bit#(8) truncBSobel = truncate(bSobel);
         UInt#(8) _sobel = unpack(truncBSobel);

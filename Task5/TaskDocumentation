@@ -1,0 +1,86 @@
+Task 5
+    Find good bitwidth for fixedwidth integers
+        Execute python3 CosBlock.py
+        Look at beginning of printout
+        List of average and max relative error for every bitwidth is printed out.
+        Look at findBitwidthErrors() and from there into the pythoncode:
+            python functions for exact and emulated fixedpoint operation
+            Computation of error between the two results on the basis of example blocks
+        Decision for 11 bits precision on the basis of the precision from the printout
+        Next in the printout: Values for cosinus block with 11 bit precision
+        
+    Testing of DCT Core correctness in Bluespec
+        Look at the end of the printout of python3 CosBlock.py
+        Results for two testcases.
+        python3 HexImageCreate.py creates Hexdump file for the same two input blocks as in the testcases
+        Hexfile is created in hardcoded location; Be careful to not change the file positions
+        Run make in Bluespec folder to execute the testcase.
+        Result comparison match the python version.
+        Cross check with external implementation using https://asecuritysite.com/comms/dct2
+        
+    Testing of DCT Core correctness in Hardware
+        Load Bitstream DCT_190MHz.bit.bin via LoadBitstream.sh like in the other tasks
+        Compile Driver using make in Driver/
+        Load driver insmod misc_dct.ko
+        Compile Application in Application/build using cmake .. and make
+        
+        Execute Application ./Application in Application/build
+            Results can be seen in "Application_printout" file
+            1) testFPGA subFunction of main():
+                Second comparison of testcases (High precision software vs Low precision hardware) -> Small erros in values of hardware as expected
+            2) evaluateIPCoreRuntime subFunction of main():
+                Runtime of hardware DCT with printout (Look in Application_printout file under "Test runtime of FPGA")
+            3) evaluateCPURuntime subFunction of main():
+                Runtime of software CPU with printout (Look in Application_printout file under "Test runtime of CPU")
+                Maximal usage of cpu with openmp
+                
+            Result: FPGA several orders of magnitude faster than CPU
+            For FullHD on hardware (1920 x 1080) ~ 32768 blocks (8x8) => ~16 milliseconds / 62.5 fps (First AXI Read to last AXI Write)
+            Look at Application_printout for more data
+
+        On Demand: Process image
+            On Hardware : ./Application inputImagePath outputImagePath 
+                            (./Application ../Testimage.png ../TestimageResult.png)
+            On Software : ./Application inputImagePath outputImagePath 1 
+                            (./Application ../Testimage.png ../TestimageResult.png 1)
+            
+        Discussion of Bluespec implementation and performance
+            Hardware implementation assumes the image to be structured as one block (8x8) after another. One block if flattened as 64 consecutive bytes.
+            Reorganization of data before and after the hardware is done in software
+            
+            DCTOperator gets uint8 block (8x8) and computes the discrete cosinus transformation using two systolic arrays
+            Data width is expanded and therefore int16 is returned to capture the results
+            
+            AXIDCTBlockReader reads data via AXI, structures it to blocks (8x8) and returns them. One block consits of 4 beats of 128 bit each.
+            
+            AXIDCTBlockWriter gets blocks (8x8) and writes them via AXI. One block is transfered to 8 beats of 128 bit each.
+                        
+            The DCT module contains the previous submodules. Via SIMULTBLOCKS the top module can be configured on the number of blocks that can be computed simultaneously. The optimal theoretical performance would be achieved with 3 dct operators. That is because the systolic array takes 24 clock cycles. Each block (8x8) takes 4 clock cycles to be read and 8 clock cycles to be written back. That is a result of the 128 bit beat width. More than 3 dct operators would lead to the AXIDCTBlockWriter being the bottleneck (24/8 = 3).
+            
+            The Burst length of both AXIDCTBlockReader and AXIDCTBlockWriter is fixed so that one burst fills the SIMULTBLOCKS number of blocks with data.
+            
+            In Reality the given hardware can only use SIMULTBLOCKS==1 without running out of ressources. As a result the DCTOperator is the bottleneck in the hardware and any optimization of the reading and writing process via burst length is senseless.
+            
+        Discussion of Maximum frequence
+            The given hardware allows frequences up to 170Mhz
+            Any experiments are done with this bitstream
+            
+            The worst negative slack for various Frequences
+                110Mhz - 2.1 ns
+                120Mhz - 0.8 ns
+                130Mhz - 0.7 ns
+                150Mhz - 0.05 ns
+                160Mhz - 0.15 ns
+                170Mhz - 0.0003 ns
+                
+        Discussion of Utilization
+            Type    Used    Given      Percentage
+            LUT	    54147	70560	    76.738945
+            LUTRAM	69	    28800	    0.23958334
+            FF	    34091	141120	    24.157454
+            BRAM	87.5	216	        40.50926
+            DSP	    144	    360	        40.0
+            BUFG	10	    196	        5.102041
+            MMCM	1	     3	        33.333336
+            
+            Increasing the number of SIMULTBLOCKS to 2 leads to a non placable sythesis.

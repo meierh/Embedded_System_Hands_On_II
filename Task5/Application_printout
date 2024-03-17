@@ -1,0 +1,104 @@
+-------------Test correctness of FPGA-------------
+In Blocks
+  32   33   34   35   36   37   38   39 
+  40   41   42   43   44   45   46   47 
+  48   49   50   51   52   53   54   55 
+  56   57   58   59   60   61   62   63 
+  64   65   66   67   68   69   70   71 
+  72   73   74   75   76   77   78   79 
+  80   81   82   83   84   85   86   87 
+  88   89   90   91   92   93   94   95 
+
+ 255  255  255  255  255  255  255  255 
+ 255  255  255  255  255  255  255  255 
+ 255  255  255  255  255  255  255  255 
+ 255  255  255  255  255  255  255  255 
+ 255  255  255  255  255  255  255  255 
+ 255  255  255  255  255  255  255  255 
+ 255  255  255  255  255  255  255  255 
+ 255  255  255  255  255  255  255  255 
+
+Hardware Blocks
+ 507  -19    0   -3    0   -2    0   -2 
+-146    0    0    0    0    0    0    0 
+   0    0    0    0    0    0    0    0 
+ -16    0    0    0    0    0    0    0 
+   0    0    0    0    0    0    0    0 
+  -5    0    0    0    0    0    0    0 
+   0    0    0    0    0    0    0    0 
+  -2    0    0    0    0    0    0    0 
+
+2039    0    0    0    0    0    0    0 
+   0    0    0    0    0    0    0    0 
+   0    0    0    0    0    0    0    0 
+   0    0    0    0    0    0    0    0 
+   0    0    0    0    0    0    0    0 
+   0    0    0    0    0    0    0    0 
+   0    0    0    0    0    0    0    0 
+   0    0    0    0    0    0    0    0 
+
+Software Blocks
+ 507  -18    0   -1    0    0    0    0 
+-145    0    0    0    0    0    0    0 
+   0    0    0    0    0    0    0    0 
+ -15    0    0    0    0    0    0    0 
+   0    0    0    0    0    0    0    0 
+  -4    0    0    0    0    0    0    0 
+   0    0    0    0    0    0    0    0 
+  -1    0    0    0    0    0    0    0 
+
+2039    0    0    0    0    0    0    0 
+   0    0    0    0    0    0    0    0 
+   0    0    0    0    0    0    0    0 
+   0    0    0    0    0    0    0    0 
+   0    0    0    0    0    0    0    0 
+   0    0    0    0    0    0    0    0 
+   0    0    0    0    0    0    0    0 
+   0    0    0    0    0    0    0    0 
+
+
+-------------Test runtime of FPGA-------------
+FPGA computing 1 blocks took 8 milliseconds.
+FPGA computing 2 blocks took 8 milliseconds.
+FPGA computing 4 blocks took 8 milliseconds.
+FPGA computing 8 blocks took 8 milliseconds.
+FPGA computing 16 blocks took 8 milliseconds.
+FPGA computing 32 blocks took 8 milliseconds.
+FPGA computing 64 blocks took 8 milliseconds.
+FPGA computing 128 blocks took 8 milliseconds.
+FPGA computing 256 blocks took 8 milliseconds.
+FPGA computing 512 blocks took 8 milliseconds.
+FPGA computing 1024 blocks took 9 milliseconds.
+FPGA computing 2048 blocks took 9 milliseconds.
+FPGA computing 4096 blocks took 9 milliseconds.
+FPGA computing 8192 blocks took 9 milliseconds.
+FPGA computing 16384 blocks took 11 milliseconds.
+FPGA computing 32768 blocks took 16 milliseconds.
+FPGA computing 65536 blocks took 28 milliseconds.
+FPGA computing 131072 blocks took 48 milliseconds.
+FPGA computing 262144 blocks took 92 milliseconds.
+FPGA computing 524288 blocks took 175 milliseconds.
+FPGA computing 1048576 blocks took 346 milliseconds.
+
+-------------Test runtime of CPU-------------
+CPU computing 1 blocks took 0 milliseconds.
+CPU computing 2 blocks took 0 milliseconds.
+CPU computing 4 blocks took 0 milliseconds.
+CPU computing 8 blocks took 1 milliseconds.
+CPU computing 16 blocks took 2 milliseconds.
+CPU computing 32 blocks took 5 milliseconds.
+CPU computing 64 blocks took 10 milliseconds.
+CPU computing 128 blocks took 20 milliseconds.
+CPU computing 256 blocks took 39 milliseconds.
+CPU computing 512 blocks took 79 milliseconds.
+CPU computing 1024 blocks took 159 milliseconds.
+CPU computing 2048 blocks took 320 milliseconds.
+CPU computing 4096 blocks took 637 milliseconds.
+CPU computing 8192 blocks took 1274 milliseconds.
+CPU computing 16384 blocks took 2548 milliseconds.
+CPU computing 32768 blocks took 5098 milliseconds.
+CPU computing 65536 blocks took 10193 milliseconds.
+CPU computing 131072 blocks took 20388 milliseconds.
+CPU computing 262144 blocks took 40776 milliseconds.
+CPU computing 524288 blocks took 81551 milliseconds.
+CPU computing 1048576 blocks took 163101 milliseconds.

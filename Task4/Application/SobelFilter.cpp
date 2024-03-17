@@ -12,58 +12,30 @@ std::unique_ptr<cv::Mat> applySobelFilter(cv::Mat input)
     correctImageSize(input);
     std::cout<<"Corrected Image size to ("<<input.rows<<","<<input.cols<<")"<<std::endl;
     
+    /*
+    for(uint y=0; y<input.rows; y++)
+    {
+        for(uint x=0; x<input.cols; x++)
+        {
+            printf("%3d",input.at<uchar>(y,x));
+        }
+        std::cout<<std::endl;
+    }
+    */
+    
     std::unique_ptr<Array2D<uchar>> arrayInputImage = cvGrayscaleToArray(input);
     std::cout<<"Transfered grayscale image to grayscale 2d-array ("<<arrayInputImage->getRows()<<","<<arrayInputImage->getCols()<<")"<<std::endl;
     
     SobelChunks<uchar> grayScaleChunks(*arrayInputImage,16,10);
     std::cout<<"Transfered Grayscale 2d-array to Sobel chunks!"<<std::endl;
     
-    uchar* chunksPtr = grayScaleChunks.getDataPtr();
-    uint pixelNumber = grayScaleChunks.getTotal();
-    std::cout<<"pixelNumber:"<<pixelNumber<<std::endl;
-    uint chunks = pixelNumber/16;
-    std::cout<<"chunks:"<<chunks<<std::endl;
-    for(uint chunkId=0; chunkId<chunks; chunkId++)
-    {
-        for(uint i=0; i<16; i++)
-        {
-            printf(" %3d",int(*(chunksPtr+chunkId*16+i)));
-        }
-        printf("\n");
-    }
-    std::cout<<"---------------------------------------"<<std::endl;
-    
-    
     SobelChunks<uchar> sobelResultChunks;
-    passThroughFilter(grayScaleChunks,sobelResultChunks);
-    std::cout<<"Passthrough DCT Filter!"<<std::endl;
-    
-    chunksPtr = sobelResultChunks.getDataPtr();
-    pixelNumber = sobelResultChunks.getTotal();
-    std::cout<<"pixelNumber:"<<pixelNumber<<std::endl;
-    chunks = pixelNumber/16;
-    std::cout<<"chunks:"<<chunks<<std::endl;
-    for(uint chunkId=0; chunkId<chunks; chunkId++)
-    {
-        for(uint i=0; i<16; i++)
-        {
-            printf(" %3d",int(*(chunksPtr+chunkId*16+i)));
-        }
-        printf("\n");
-    }
-    std::cout<<"---------------------------------------"<<std::endl;
+    sobelFilter(grayScaleChunks,sobelResultChunks);
+    //passThroughFilter(grayScaleChunks,sobelResultChunks);
+    std::cout<<"Hardware DCT Filter!"<<std::endl;
     
     std::unique_ptr<Array2D<uchar>> grayScaleSobelImage = sobelResultChunks.reconstructImage();
     std::cout<<"Reconstruct sobel to grayscale image!"<<std::endl;
-    
-    for(uint y=0; y<grayScaleSobelImage->getRows(); y++)
-    {
-        for(uint x=0; x<grayScaleSobelImage->getCols(); x++)
-        {
-            printf(" %3d",(*grayScaleSobelImage)(y,x));
-        }
-        printf("\n");
-    }
     
     std::unique_ptr<cv::Mat> ouputImage = arrayToCvGrayscale(*grayScaleSobelImage,origColums);
     std::cout<<"Transfered Grayscale 2d-array to grayscale image"<<std::endl;
@@ -74,15 +46,10 @@ std::unique_ptr<cv::Mat> applySobelFilter(cv::Mat input)
 void correctImageSize(cv::Mat& image)
 {
     int inputCols = image.cols;
-    int inputRows = image.rows;
-    std::cout<<"Got image ("<<inputRows<<","<<inputCols<<")"<<std::endl;
-    
+    int inputRows = image.rows;    
     int paddedInputCols = inputCols+6;
-    std::cout<<"paddedInputCols:"<<paddedInputCols<<std::endl;
     int addSizeToNorm = normedColumCount(paddedInputCols);
-    std::cout<<"addSizeToNorm:"<<addSizeToNorm<<std::endl;
     int colsToAdd = addSizeToNorm-paddedInputCols;
-    std::cout<<"colsToAdd:"<<colsToAdd<<std::endl;
 
     cv::Mat resizedImage;
     cv::copyMakeBorder(image,resizedImage,3,3,3,3+colsToAdd,cv::BORDER_CONSTANT,0);
@@ -149,15 +116,43 @@ std::unique_ptr<cv::Mat> arrayToCvGrayscale(const Array2D<uchar>& array, int col
 {
     if(columns>array.getCols())
         throw std::invalid_argument("Column count must not be larger than array columns");
-    auto imagePtr = std::make_unique<cv::Mat>(array.getRows(),columns,CV_16U);
+    auto imagePtr = std::make_unique<cv::Mat>(array.getRows(),columns,CV_8U);
     cv::Mat& image = *imagePtr;
+    
+    /*
+    for(uint r=0; r<array.getRows(); r++)
+    {
+        for(uint c=0; c<array.getCols(); c++)
+        {
+            printf("%3d",array(r,c));
+        }
+        std::cout<<std::endl;
+    }
+    */
+    
+    //std::cout<<"image.rows:"<<image.rows<<std::endl;
+    //std::cout<<"image.cols:"<<image.cols<<std::endl;
+    
     for(uint row=0; row<image.rows; row++)
     {
         for(uint col=0; col<image.cols; col++)
         {
-            image.at<ushort>(row,col) = array(row,col);
+            image.at<uchar>(row,col) = array(row,col);
         }
     }
+    
+    /*
+    std::cout<<std::endl;
+    for(uint r=0; r<image.rows; r++)
+    {
+        for(uint c=0; c<image.cols; c++)
+        {
+            printf("%3d",image.at<uchar>(r,c));
+        }
+        std::cout<<std::endl;
+    }
+    */
+    
     return imagePtr;
 }
 
@@ -185,7 +180,6 @@ void SobelChunks<T>::reset(const Array2D<T>& array, uint chunkSize, uint chunkSh
 
     init(rows,chunkCols,chunkSize,chunkShift);
     array2DToChunkData(array,chunkSize,chunkShift,data);
-    std::cout<<"Reset done"<<std::endl;
 }
 
 template<typename T>
@@ -210,12 +204,6 @@ void SobelChunks<T>::array2DToChunkData(const Array2D<T>& array, uint chunkSize,
     if(getTotal()!=data.size())
         throw std::invalid_argument("Size mismatch!");
     
-    std::cout<<"rows:"<<rows<<std::endl;
-    std::cout<<"chunkCols:"<<chunkCols<<std::endl;
-    std::cout<<"chunkSize:"<<chunkSize<<std::endl;
-    std::cout<<"chunkShift:"<<chunkShift<<std::endl;
-    std::cout<<"data.size():"<<data.size()<<std::endl;
-    
     uint insertIndex=0;
     for(uint xOffset=0; xOffset+chunkSize<array.getCols()+1; xOffset+=chunkShift)
     {
@@ -232,7 +220,6 @@ void SobelChunks<T>::array2DToChunkData(const Array2D<T>& array, uint chunkSize,
             }
         }
     }
-    std::cout<<"insertIndex:"<<insertIndex<<std::endl;
     
     if(insertIndex!=data.size())
     {
@@ -244,11 +231,9 @@ void SobelChunks<T>::array2DToChunkData(const Array2D<T>& array, uint chunkSize,
 template<typename T>
 void SobelChunks<T>::chunkDataToArray2D(const std::vector<T>& data, Array2D<T>& array, uint chunkSize, uint chunkShift)
 {
-    std::cout<<"arrayCol:"<<array.getCols()<<" arrayRow:"<<array.getRows()<<std::endl;
     uint numberChunks = data.size()/chunkSize;
     uint rowIndex = 0;
     uint colIndex = 0;
-    std::cout<<"numberChunks:"<<numberChunks<<std::endl;
     for(uint chunkId=0; chunkId<numberChunks; chunkId++)
     {
         for(uint pxInd=0; pxInd<chunkShift; pxInd++)
@@ -267,6 +252,16 @@ void SobelChunks<T>::chunkDataToArray2D(const std::vector<T>& data, Array2D<T>& 
             rowIndex++;
         }
     }
+    /*
+    for(uint r=0; r<array.getRows(); r++)
+    {
+        for(uint c=0; c<array.getCols(); c++)
+        {
+            printf("%3d",array(r,c));
+        }
+        std::cout<<std::endl;
+    }
+    */
 }
 
 template<typename T>
@@ -280,9 +275,19 @@ std::unique_ptr<Array2D<T>> SobelChunks<T>::reconstructImage()
 
 void passThroughFilter(SobelChunks<uchar> input, SobelChunks<uchar>& output)
 {
+    /*
+    for(uint i=0; i<input.getData().size(); i+=16)
+    {
+        for(uint k=0; k<16; k++)
+        {
+            printf("%3d",input.getData()[i+k]);
+        }
+        std::cout<<std::endl;
+    }
+    */
+    
     uint outputRows = input.getRows()-6;
     output.reset(outputRows,input.getChunkCols(),input.getChunkSize(),input.getChunkShift());
-    std::cout<<"size:"<<output.getTotal()<<std::endl;
     uchar* inputDataPtr = input.getDataPtr();
     uchar* outputDataPtr = output.getDataPtr();
     
@@ -308,5 +313,76 @@ void passThroughFilter(SobelChunks<uchar> input, SobelChunks<uchar>& output)
             countRows++;
             rdIndex += input.getChunkSize();
         }
+    }
+    
+    /*
+    std::cout<<std::endl;
+    for(uint i=0; i<output.getData().size(); i+=16)
+    {
+        for(uint k=0; k<16; k++)
+        {
+            printf("%3d",output.getData()[i+k]);
+        }
+        std::cout<<std::endl;
+    }
+    */
+    
+}
+
+void sobelFilter(SobelChunks<uchar> input, SobelChunks<uchar>& output)
+{
+    int fd_sobel = open("/dev/misc_sobel",O_RDWR);
+    if(fd_sobel<0)
+    {
+        printf("Failed to open sobel device\n");
+        throw std::logic_error("Failed to open device");
+    }
+    
+    uint outputRows = input.getRows()-6;
+    uint32_t paddedRows = input.getRows();
+    uint32_t chunksX = input.getChunkCols();
+    output.reset(outputRows,chunksX,input.getChunkSize(),input.getChunkShift());
+    uint numberChunks = outputRows*input.getChunkCols();
+      
+    std::vector<uchar>& bytes = input.getData();
+    
+    rotate128Beat(bytes);
+
+    ioctl(fd_sobel,IOCTL_SOBELWAIT);
+    
+    ioctl(fd_sobel,IOCTL_SOBELCHUNKSX,&chunksX);
+    ioctl(fd_sobel,IOCTL_SOBELRESY,&paddedRows);
+    uint32_t kernelType = 2;
+    ioctl(fd_sobel,IOCTL_SOBELKERNEL,&kernelType);
+ 
+    ioctl(fd_sobel,IOCTL_SOBELDMAMALLOC);
+
+    ioctl(fd_sobel,IOCTL_SOBELINPUTDATA,bytes.data());
+
+    ioctl(fd_sobel,IOCTL_SOBELEXECCMD);
+    ioctl(fd_sobel,IOCTL_SOBELWAIT);
+
+    std::vector<uint8_t>& outData = output.getData();
+    
+    ioctl(fd_sobel,IOCTL_SOBELOUTPUTDATA,outData.data());
+
+    rotate128Beat(outData);
+
+    ioctl(fd_sobel,IOCTL_SOBELDMAFREE);
+
+    close(fd_sobel);
+}
+
+void rotate128Beat(std::vector<uint8_t>& data)
+{
+    if(data.size()%16!=0)
+	throw std::logic_error("Invalid data size for beat rotation");
+    std::array<uint8_t,16> rotateBeat;
+    for(uint beatInd=0; beatInd<data.size(); beatInd+=16)
+    {
+	for(uint byteInd=0; byteInd<16; byteInd++)
+	    rotateBeat[15-byteInd] = data[beatInd+byteInd];
+	for(uint byteInd=0; byteInd<16; byteInd++)
+	    data[beatInd+byteInd] = rotateBeat[byteInd];
     }
 }

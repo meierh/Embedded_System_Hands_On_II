@@ -20,32 +20,32 @@ int main()
 	int32_t* c = data+2;
 
 	//Test Adder functionality
-	printf("-------Test Adder functionality-------\n");
+	printf("-----Test Adder functionality-----\n");
 	*a = 13;
 	*b = 87;
 	ioctl(fd,IOCTL_ADD,data);
-	printf("%d + %d = %d",*a,*b,*c);
+	printf("	%3d + %3d = %3d\n",*a,*b,*c);
 
 	ioctl(fd,IOCTL_ADD,data);
-	printf("%d + %d = %d",*a,*b,*c);
+	printf("	%3d + %3d = %3d\n",*a,*b,*c);
 
 	*a = 33;
 	ioctl(fd,IOCTL_ADD,data);
-	printf("%d + %d = %d",*a,*b,*c);
+	printf("	%3d + %3d = %3d\n",*a,*b,*c);
 
 	*b = 57;
 	ioctl(fd,IOCTL_ADD,data);
-	printf("%d + %d = %d",*a,*b,*c);
+	printf("	%3d + %3d = %3d\n",*a,*b,*c);
 
 	*b = 22;
 	ioctl(fd,IOCTL_ADD,data);
-	printf("%d + %d = %d",*a,*b,*c);
+	printf("	%3d + %3d = %3d\n",*a,*b,*c);
 
 	*b = -43;
 	ioctl(fd,IOCTL_ADD,data);
-	printf("%d + %d = %d",*a,*b,*c);
+	printf("	%3d + %3d = %3d\n",*a,*b,*c);
 
-	printf("-------------------------------------------\n");
+	printf("----------------------------------\n");
 	close(fd);
 	return 0;
 }

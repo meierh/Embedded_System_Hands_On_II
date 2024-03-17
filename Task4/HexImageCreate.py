@@ -70,7 +70,7 @@ def chunkListToHexDump(chunkList):
     numWords = int(np.ceil(len(flatImage)/16))
     #print("numWords:",numWords)
     flatImageChunks = split_given_size(flatImage,16)
-    print(flatImageChunks)
+    #print(flatImageChunks)
             
     with open('SobelFilter/build/hexImage.hex', 'w') as f:
         for line in flatImageChunks:
@@ -91,8 +91,9 @@ def applySobelFilter(image,kernel,div):
 img = generateImage(2,6)
 print(img)
 chunks = imageToChunks(img)
+print(chunks)
 chunkListToHexDump(chunks)
-res = applySobelFilter(img,sobel.sobel7,sobel.sobel7Div)
+res = applySobelFilter(img,sobel.sobel3,sobel.sobel3Div)
 resChunks = imageToResultChunks(res)
 print(resChunks)
 
@@ -104,7 +105,7 @@ kernelDiv = sobel.sobel5/sobel.sobel5Div
 res = int(sobel.rawSobel(kernelDiv,stencil))
 print(res)
 
-print(kernelDiv*2**12)
+#print(kernelDiv*2**12)
 #print(stencil)
 #kernelDiv = sobel.sobel3/sobel.sobel3Div;
 #print(kernelDiv)
